@@ -130,8 +130,13 @@ fn handle_main_menu_click(app: &mut App, click_x: u16, click_y: u16) -> Result<(
                 clicked_row,
             ) {
                 // If clicking on already-selected VM, show launch confirmation
+                // (unless it's already running — Launch is disabled then).
                 if visual_idx == app.selected_vm && app.selected_vm().is_some() {
-                    app.push_screen(Screen::Confirm(ConfirmAction::LaunchVm));
+                    if app.selected_vm_pid().is_some() {
+                        app.set_status("VM is already running");
+                    } else {
+                        app.push_screen(Screen::Confirm(ConfirmAction::LaunchVm));
+                    }
                 } else {
                     // Otherwise, just select the VM
                     app.selected_vm = visual_idx;
@@ -633,7 +638,9 @@ fn handle_main_menu(app: &mut App, key: KeyEvent) -> Result<()> {
         }
         KeyCode::Enter => {
             if app.selected_vm().is_some() {
-                if app.config.confirm_before_launch {
+                if app.selected_vm_pid().is_some() {
+                    app.set_status("VM is already running");
+                } else if app.config.confirm_before_launch {
                     app.push_screen(Screen::Confirm(ConfirmAction::LaunchVm));
                 } else {
                     // Launch directly without confirmation

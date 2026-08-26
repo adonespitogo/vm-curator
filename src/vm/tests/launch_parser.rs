@@ -119,7 +119,10 @@ fn test_extract_networks_non_numeric_netdev_id_still_parses_backend() {
         -device rtl8139,netdev=mybr0";
     let configs = extract_networks(content);
     assert_eq!(configs.len(), 1);
-    assert_eq!(configs[0].backend, NetworkBackend::Bridge("virbr0".to_string()));
+    assert_eq!(
+        configs[0].backend,
+        NetworkBackend::Bridge("virbr0".to_string())
+    );
     assert_eq!(configs[0].bridge, Some("virbr0".to_string()));
     assert_eq!(configs[0].model, "rtl8139");
 }

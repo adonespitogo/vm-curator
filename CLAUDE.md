@@ -138,6 +138,32 @@ cargo run -- list        # Run CLI command
 cargo test               # Run tests
 ```
 
+## Formatting
+
+CI (`.github/workflows/ci.yml`) gates on `cargo fmt --all -- --check` across the
+whole crate, and there is currently pre-existing formatting drift on `main`
+relative to the pinned `stable` rustfmt — do not "fix" that drift as a side
+effect of an unrelated change.
+
+**`cargo fmt -- <path>` does NOT scope to `<path>`.** Per `cargo fmt --help`,
+cargo-fmt "formats all bin and lib files of the current crate" — any file
+arguments after `--` are passed through as rustfmt options, not a file filter,
+so `cargo fmt -- src/foo.rs` (with or without `--check`) reformats/checks
+*every* source file in the crate, silently rewriting unrelated files that
+happen to differ from the current rustfmt version's output.
+
+To format or check only the file(s) you touched, invoke `rustfmt` directly
+instead:
+
+```bash
+rustfmt src/ui/screens/main_menu.rs         # format just this file
+rustfmt --check src/ui/screens/main_menu.rs # check just this file, no write
+```
+
+Only run whole-crate `cargo fmt --all` (or `cargo fmt --all -- --check`) when
+you intend to touch every file's formatting, e.g. matching what CI checks
+right before a release audit — not as a way to format one file.
+
 ## Common Development Tasks
 
 ### Adding OS metadata

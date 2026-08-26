@@ -10,10 +10,10 @@ use crate::ui::widgets::{AsciiInfoWidget, VmListWidget, NBSP};
 pub fn render(app: &App, frame: &mut Frame) {
     let area = frame.area();
 
-    // The help bar wraps onto as many lines as the terminal width demands,
+    // The help bar wraps onto as many rows as the terminal width demands,
     // so measure it against this frame's width before laying out the screen.
-    let hints = build_help_hints(app);
-    let help_height = hints_line_count(&hints, area.width.saturating_sub(2)) + 2;
+    let content = build_help_content(app);
+    let help_height = help_bar_height(app, area.width);
 
     // Create main layout
     let chunks = Layout::default()
@@ -61,7 +61,7 @@ pub fn render(app: &App, frame: &mut Frame) {
     .render(main_chunks[1], frame.buffer_mut());
 
     // Render help bar
-    render_help_bar(hints, chunks[2], frame);
+    render_help_bar(content, chunks[2], frame);
 }
 
 fn render_title(app: &App, area: Rect, frame: &mut Frame) {
@@ -99,11 +99,36 @@ fn render_title(app: &App, area: Rect, frame: &mut Frame) {
     frame.render_widget(title, area);
 }
 
+/// One hint in the help bar's grid: its key, label, and whether it's
+/// currently actionable given the selected VM's state.
+struct HelpItem {
+    key: &'static str,
+    label: &'static str,
+    enabled: bool,
+}
+
+/// Widest most columns the help grid will use, even on very wide terminals.
+const MAX_HELP_COLUMNS: usize = 3;
+
+/// The help bar's content: either the normal hint grid, or a single
+/// status/stopping-VM message that overrides it.
+enum HelpContent {
+    Grid(Vec<HelpItem>),
+    Message(Span<'static>),
+}
+
 /// Height (including top/bottom borders) the help bar will render at for the
 /// given terminal width. Exposed so mouse-click hit testing in `ui::mod` can
-/// locate the VM list area without duplicating the hint/wrap layout.
+/// locate the VM list area without duplicating the grid/wrap layout.
 pub fn help_bar_height(app: &App, width: u16) -> u16 {
-    hints_line_count(&build_help_hints(app), width.saturating_sub(2)) + 2
+    let inner_width = width.saturating_sub(2);
+    match build_help_content(app) {
+        HelpContent::Message(span) => hints_line_count(&[span], inner_width) + 2,
+        HelpContent::Grid(items) => {
+            let (_, rows) = grid_dimensions(items.len(), max_item_text_width(&items), inner_width);
+            rows as u16 + 2
+        }
+    }
 }
 
 /// Word-wrapped line count for a list of hint spans (concatenates their text
@@ -113,83 +138,176 @@ fn hints_line_count(spans: &[Span], width: u16) -> u16 {
     crate::ui::widgets::wrapped_line_count(&text, width)
 }
 
-/// Build the help bar's hint spans, or a status/stopping-VM message that
-/// overrides them. Owned (`'static`) so it can be measured for wrapping and
-/// rendered without borrowing from `app` across the layout split.
-fn build_help_hints(app: &App) -> Vec<Span<'static>> {
-    // A non-breaking space joins each [key] to its label so a wrap can only
-    // land in the gap *between* hints, never split a key from its own label
-    // (see ui::widgets::text::NBSP).
-    let mut hints = vec![
-        Span::styled(" [Enter]", Style::default().fg(Color::Yellow)),
-        Span::raw(format!("{NBSP}Launch ")),
-        Span::styled(" [x]", Style::default().fg(Color::Yellow)),
-        Span::raw(format!("{NBSP}Stop ")),
-        Span::styled(" [m]", Style::default().fg(Color::Yellow)),
-        Span::raw(format!("{NBSP}Manage ")),
-        Span::styled(" [c]", Style::default().fg(Color::Yellow)),
-        Span::raw(format!("{NBSP}Create ")),
-        Span::styled(" [i]", Style::default().fg(Color::Yellow)),
-        Span::raw(format!("{NBSP}Import ")),
-        Span::styled(" [s]", Style::default().fg(Color::Yellow)),
-        Span::raw(format!("{NBSP}Settings ")),
-        Span::styled(" [n]", Style::default().fg(Color::Yellow)),
-        Span::raw(format!("{NBSP}Networks ")),
-        Span::styled(" [g]", Style::default().fg(Color::Yellow)),
-        Span::raw(format!("{NBSP}Groups ")),
-        Span::styled(" [/]", Style::default().fg(Color::Yellow)),
-        Span::raw(format!("{NBSP}Search ")),
-        Span::styled(" [?]", Style::default().fg(Color::Yellow)),
-        Span::raw(format!("{NBSP}Help ")),
-        Span::styled(" [q]", Style::default().fg(Color::Yellow)),
-        Span::raw(format!("{NBSP}Quit ")),
-    ];
-
-    // Show stopping VM status
-    if app.status_message.is_none() {
-        if let Some((id, sent_at)) = app.stopping_vms.iter().next() {
-            let elapsed = sent_at.elapsed().as_secs();
-            let vm_name = app
-                .vms
-                .iter()
-                .find(|vm| &vm.id == id)
-                .map(|vm| vm.display_name())
-                .unwrap_or_else(|| id.clone());
-            hints.clear();
-            if elapsed >= 10 {
-                hints.push(Span::styled(
-                    format!("Stopping {}... (press x to force stop)", vm_name),
-                    Style::default().fg(Color::Yellow),
-                ));
-            } else {
-                hints.push(Span::styled(
-                    format!("Stopping {}...", vm_name),
-                    Style::default().fg(Color::Yellow),
-                ));
-            }
-        }
-    }
-
-    // Add status message if present (overrides everything)
-    if let Some(ref msg) = app.status_message {
-        hints.clear();
-        hints.push(Span::styled(msg.clone(), Style::default().fg(Color::Green)));
-    }
-
-    hints
+/// Width in characters of the widest `"[key] label"` item, used to size grid
+/// columns.
+fn max_item_text_width(items: &[HelpItem]) -> u16 {
+    items
+        .iter()
+        .map(|item| format!("[{}] {}", item.key, item.label).chars().count() as u16)
+        .max()
+        .unwrap_or(0)
 }
 
-fn render_help_bar(hints: Vec<Span<'static>>, area: Rect, frame: &mut Frame) {
-    let help = Paragraph::new(Line::from(hints))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray)),
-        )
-        .wrap(Wrap { trim: true })
-        .alignment(Alignment::Center);
+/// Pick a column count that fits `content_width` (never more than
+/// `MAX_HELP_COLUMNS`, never fewer than 1) and the resulting row count for
+/// `item_count` items filled column-major.
+fn grid_dimensions(item_count: usize, max_item_width: u16, content_width: u16) -> (usize, usize) {
+    let col_width = max_item_width.saturating_add(2).max(1);
+    let cols = (content_width / col_width).clamp(1, MAX_HELP_COLUMNS as u16) as usize;
+    let cols = cols.min(item_count.max(1));
+    let rows = item_count.div_ceil(cols).max(1);
+    (cols, rows)
+}
 
-    frame.render_widget(help, area);
+/// Build the help bar's content: the normal hint grid, or a status/stopping-VM
+/// message that overrides it.
+fn build_help_content(app: &App) -> HelpContent {
+    // Add status message if present (overrides everything)
+    if let Some(ref msg) = app.status_message {
+        return HelpContent::Message(Span::styled(msg.clone(), Style::default().fg(Color::Green)));
+    }
+
+    // Show stopping VM status
+    if let Some((id, sent_at)) = app.stopping_vms.iter().next() {
+        let elapsed = sent_at.elapsed().as_secs();
+        let vm_name = app
+            .vms
+            .iter()
+            .find(|vm| &vm.id == id)
+            .map(|vm| vm.display_name())
+            .unwrap_or_else(|| id.clone());
+        let text = if elapsed >= 10 {
+            format!("Stopping {}... (press x to force stop)", vm_name)
+        } else {
+            format!("Stopping {}...", vm_name)
+        };
+        return HelpContent::Message(Span::styled(text, Style::default().fg(Color::Yellow)));
+    }
+
+    let vm_running = app.selected_vm_pid().is_some();
+
+    HelpContent::Grid(vec![
+        HelpItem {
+            key: "Enter",
+            label: "Launch",
+            enabled: !vm_running,
+        },
+        HelpItem {
+            key: "x",
+            label: "Stop",
+            enabled: vm_running,
+        },
+        HelpItem {
+            key: "m",
+            label: "Manage",
+            enabled: true,
+        },
+        HelpItem {
+            key: "c",
+            label: "Create",
+            enabled: true,
+        },
+        HelpItem {
+            key: "i",
+            label: "Import",
+            enabled: true,
+        },
+        HelpItem {
+            key: "s",
+            label: "Settings",
+            enabled: true,
+        },
+        HelpItem {
+            key: "n",
+            label: "Networks",
+            enabled: true,
+        },
+        HelpItem {
+            key: "g",
+            label: "Groups",
+            enabled: true,
+        },
+        HelpItem {
+            key: "/",
+            label: "Search",
+            enabled: true,
+        },
+        HelpItem {
+            key: "?",
+            label: "Help",
+            enabled: true,
+        },
+        HelpItem {
+            key: "q",
+            label: "Quit",
+            enabled: true,
+        },
+    ])
+}
+
+fn render_help_bar(content: HelpContent, area: Rect, frame: &mut Frame) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    match content {
+        HelpContent::Message(span) => {
+            let help = Paragraph::new(Line::from(span))
+                .wrap(Wrap { trim: true })
+                .alignment(Alignment::Center);
+            frame.render_widget(help, inner);
+        }
+        HelpContent::Grid(items) => render_help_grid(&items, inner, frame),
+    }
+}
+
+/// Render hint items in a column-major grid (filled down each column, then
+/// to the next), with the column count chosen to fit `area`'s width.
+/// Disabled items (e.g. Launch on a running VM) render dimmed.
+fn render_help_grid(items: &[HelpItem], area: Rect, frame: &mut Frame) {
+    let (cols, rows) = grid_dimensions(items.len(), max_item_text_width(items), area.width);
+
+    // A 1-cell left margin keeps the first column's hints from butting up
+    // against the block border now that columns are left-aligned.
+    let area = area.inner(Margin::new(1, 0));
+    let col_constraints = vec![Constraint::Ratio(1, cols as u32); cols];
+    let col_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(col_constraints)
+        .split(area);
+
+    for (col_idx, chunk) in col_chunks.iter().enumerate() {
+        let start = col_idx * rows;
+        if start >= items.len() {
+            continue;
+        }
+        let end = (start + rows).min(items.len());
+
+        let lines: Vec<Line> = items[start..end]
+            .iter()
+            .map(|item| {
+                let key_style = if item.enabled {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                let label_style = if item.enabled {
+                    Style::default()
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                Line::from(vec![
+                    Span::styled(format!("[{}]", item.key), key_style),
+                    Span::styled(format!("{NBSP}{}", item.label), label_style),
+                ])
+            })
+            .collect();
+
+        let para = Paragraph::new(lines).alignment(Alignment::Left);
+        frame.render_widget(para, *chunk);
+    }
 }
 
 #[cfg(test)]

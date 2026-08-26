@@ -123,34 +123,17 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ### Screenshots
 
-```
- VM Curator (QEMU VM Library in ~/vm-space)
-┌─────────────────────────────────────────────────────────────────────┐
-│ ┌─────────────────────────┐  ┌────────────────────────────────────┐ │
-│ │ VMs (35)                │  │       _    _ _           _        │ │
-│ │ ──────────────────────  │  │      | |  | (_)         | |       │ │
-│ │ 📁 Daily Drivers        │  │      | |/\| |_ _ __   __| | ___   │ │
-│ │     > Windows 11    [*] │  │       \/  \/|_|_| |_|\__,_|\___/  │ │
-│ │     > Debian 12         │  │                                   │ │
-│ │ 📁 Retro                │  │   Windows 11                      │ │
-│ │     > MS-DOS 6.22       │  │   Windows 11 | Microsoft | 2021   │ │
-│ │     > Windows 95        │  │                                   │ │
-│ │ 🐧 Ungrouped            │  │   Hardware                        │ │
-│ │     > Ubuntu 24.04      │  │   Architecture: x86_64            │ │
-│ │                         │  │   CPU: 4 cores (host)             │ │
-│ │                         │  │   Memory: 4096 MB (4.0 GB)        │ │
-│ │                         │  │   Features: KVM, UEFI, TPM        │ │
-│ │                         │  │                                   │ │
-│ │                         │  │   Disks                           │ │
-│ │                         │  │     disk.qcow2 (25.5G/64.0G)      │ │
-│ │                         │  │                                   │ │
-│ │                         │  │   Network                         │ │
-│ │                         │  │     NIC 1: virtio — bridge: vmc0  │ │
-│ └─────────────────────────┘  └────────────────────────────────────┘ │
-├─────────────────────────────────────────────────────────────────────┤
-│ [Enter] Launch  [m] Manage  [c] Create  [n] Networks  [g] Groups   │
-└─────────────────────────────────────────────────────────────────────┘
-```
+**Main menu** — VM Groups on the left, live QEMU configuration overview on the right
+
+![Main menu](docs/screenshots/main-menu.png)
+
+**VM Groups** — organize VMs into freeform groups instead of the automatic OS-family hierarchy
+
+![VM Groups](docs/screenshots/vm-groups.png)
+
+**Virtual Network Manager** — create and manage NAT or Isolated host-only networks with built-in DHCP
+
+![Virtual Network Manager](docs/screenshots/virtual-networks.png)
 
 ### Installation
 

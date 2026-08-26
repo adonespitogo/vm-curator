@@ -735,16 +735,24 @@ pub struct VNetEditorState {
     pub editing: bool,
     pub edit_buffer: String,
     pub error: Option<String>,
+    /// (name, kind, subnet, dhcp) as they were when the editor was opened,
+    /// to detect unsaved edits on Esc (see `dirty`).
+    baseline: (String, crate::vnet::VNetKind, String, bool),
 }
 
 impl VNetEditorState {
     pub fn new_network() -> Self {
+        let name = String::new();
+        let kind = crate::vnet::VNetKind::Nat;
+        let subnet = "192.168.150.0/24".to_string();
+        let dhcp = true;
         Self {
             original_name: None,
-            name: String::new(),
-            kind: crate::vnet::VNetKind::Nat,
-            subnet: "192.168.150.0/24".to_string(),
-            dhcp: true,
+            baseline: (name.clone(), kind, subnet.clone(), dhcp),
+            name,
+            kind,
+            subnet,
+            dhcp,
             field_focus: 0,
             editing: false,
             edit_buffer: String::new(),
@@ -755,6 +763,7 @@ impl VNetEditorState {
     pub fn edit(net: &crate::vnet::VirtualNetwork) -> Self {
         Self {
             original_name: Some(net.name.clone()),
+            baseline: (net.name.clone(), net.kind, net.subnet.clone(), net.dhcp),
             name: net.name.clone(),
             kind: net.kind,
             subnet: net.subnet.clone(),
@@ -764,6 +773,17 @@ impl VNetEditorState {
             edit_buffer: String::new(),
             error: None,
         }
+    }
+
+    /// Whether the form differs from its state when opened.
+    pub fn dirty(&self) -> bool {
+        (self.name.as_str(), self.kind, self.subnet.as_str(), self.dhcp)
+            != (
+                self.baseline.0.as_str(),
+                self.baseline.1,
+                self.baseline.2.as_str(),
+                self.baseline.3,
+            )
     }
 }
 

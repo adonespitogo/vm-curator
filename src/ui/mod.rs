@@ -555,6 +555,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
                 | Screen::CreateWizard
                 | Screen::CreateWizardCustomOs
                 | Screen::NetworkSettings
+                | Screen::NetworkManager
                 | Screen::ImportWizard
         )
         && !(matches!(app.screen, Screen::Settings) && app.settings_editing)
@@ -1780,6 +1781,27 @@ fn handle_confirm(app: &mut App, action: ConfirmAction, key: KeyEvent) -> Result
         return Ok(());
     }
 
+    // Virtual Network Manager's create/edit form. Like Network Settings'
+    // per-NIC editor, this never pops the screen stack — the form is a
+    // nested view within Screen::NetworkManager, not its own screen.
+    if let ConfirmAction::UnsavedChanges(UnsavedKind::NetworkEdit) = action {
+        match key.code {
+            KeyCode::Char('s') | KeyCode::Char('S') | KeyCode::Enter => {
+                app.pop_screen(); // close the confirm dialog
+                screens::network_manager::save_editor(app);
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') => {
+                app.pop_screen(); // close the confirm dialog
+                screens::network_manager::discard_editor(app);
+            }
+            KeyCode::Esc | KeyCode::Char('c') | KeyCode::Char('C') => {
+                app.pop_screen(); // cancel: close dialog, stay in the form
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
+
     // Three-way unsaved-changes prompt: Save / Discard / Cancel.
     if let ConfirmAction::UnsavedChanges(kind) = action {
         match key.code {
@@ -1820,16 +1842,17 @@ fn handle_confirm(app: &mut App, action: ConfirmAction, key: KeyEvent) -> Result
 }
 
 /// Save the pending selection for `kind`, then leave the management screen.
-/// `NicEdit` is routed to its own handler in `handle_confirm` before this
-/// is ever reached — it never pops a screen, so it doesn't belong here.
+/// `NicEdit`/`NicList`/`NetworkEdit` are routed to their own handlers in
+/// `handle_confirm` before this is ever reached — they never pop a screen,
+/// so they don't belong here.
 fn confirm_save_and_exit(app: &mut App, kind: UnsavedKind) {
     match kind {
         UnsavedKind::Usb => save_usb_passthrough_config(app),
         UnsavedKind::Pci => screens::pci_passthrough::save_selection_and_report(app),
         UnsavedKind::SharedFolders => screens::shared_folders::save_selection_and_report(app),
         UnsavedKind::DiskPassthrough => screens::disk_passthrough::save_selection_and_report(app),
-        UnsavedKind::NicEdit | UnsavedKind::NicList => {
-            unreachable!("NicEdit/NicList are handled before this dispatch")
+        UnsavedKind::NicEdit | UnsavedKind::NicList | UnsavedKind::NetworkEdit => {
+            unreachable!("NicEdit/NicList/NetworkEdit are handled before this dispatch")
         }
     }
 
@@ -1838,8 +1861,8 @@ fn confirm_save_and_exit(app: &mut App, kind: UnsavedKind) {
         UnsavedKind::Pci => app.pci_selection_dirty(),
         UnsavedKind::SharedFolders => app.shared_folders_dirty(),
         UnsavedKind::DiskPassthrough => app.disk_passthrough_dirty(),
-        UnsavedKind::NicEdit | UnsavedKind::NicList => {
-            unreachable!("NicEdit/NicList are handled before this dispatch")
+        UnsavedKind::NicEdit | UnsavedKind::NicList | UnsavedKind::NetworkEdit => {
+            unreachable!("NicEdit/NicList/NetworkEdit are handled before this dispatch")
         }
     };
 
@@ -1850,14 +1873,15 @@ fn confirm_save_and_exit(app: &mut App, kind: UnsavedKind) {
 }
 
 /// Pop a management screen, restoring the parent menu cursor the same way each
-/// screen's own Esc handler does. `NicEdit` never reaches here (see above).
+/// screen's own Esc handler does. `NicEdit`/`NicList`/`NetworkEdit` never
+/// reach here (see above).
 fn exit_management_screen(app: &mut App, kind: UnsavedKind) {
     match kind {
         UnsavedKind::Usb => app.selected_menu_item = 2,
         UnsavedKind::Pci => app.selected_menu_item = 0,
         UnsavedKind::SharedFolders | UnsavedKind::DiskPassthrough => {}
-        UnsavedKind::NicEdit | UnsavedKind::NicList => {
-            unreachable!("NicEdit/NicList are handled before this dispatch")
+        UnsavedKind::NicEdit | UnsavedKind::NicList | UnsavedKind::NetworkEdit => {
+            unreachable!("NicEdit/NicList/NetworkEdit are handled before this dispatch")
         }
     }
     app.pop_screen();
@@ -2006,6 +2030,7 @@ fn render_confirm(app: &App, action: &ConfirmAction, frame: &mut Frame) {
                 UnsavedKind::SharedFolders => "shared folder",
                 UnsavedKind::DiskPassthrough => "passthrough disk",
                 UnsavedKind::NicEdit | UnsavedKind::NicList => "network adapter",
+                UnsavedKind::NetworkEdit => "network",
             };
             let message = format!("You have unsaved {} changes.", what);
             let mut dialog = ConfirmDialog::new("Unsaved Changes", &message);

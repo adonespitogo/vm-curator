@@ -571,6 +571,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
                 | Screen::CreateWizardCustomOs
                 | Screen::NetworkSettings
                 | Screen::ImportWizard
+                | Screen::GroupMembers
         )
         && !(matches!(app.screen, Screen::Settings) && app.settings_editing)
     {

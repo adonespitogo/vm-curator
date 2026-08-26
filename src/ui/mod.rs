@@ -27,6 +27,7 @@ use std::thread;
 /// Run the TUI application
 pub fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> Result<()> {
     loop {
+        app.ensure_disk_info_cached();
         terminal.draw(|frame| render(app, frame))?;
 
         // Check for status message expiry

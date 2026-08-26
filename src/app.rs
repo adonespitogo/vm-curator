@@ -24,7 +24,8 @@ use crate::metadata::{
 };
 use crate::ui::widgets::build_visual_order;
 use crate::vm::{
-    discover_vms, BootMode, DiscoveredVm, LaunchOptions, QemuProcess, SharedFolder, Snapshot,
+    discover_vms, BootMode, DiscoveredVm, DiskInfo, LaunchOptions, QemuProcess, SharedFolder,
+    Snapshot,
 };
 pub use crate::wizard_types::*;
 
@@ -210,6 +211,8 @@ pub struct App {
     pub hierarchy: HierarchyConfig,
     /// Snapshots for current VM (cached)
     pub snapshots: Vec<Snapshot>,
+    /// Disk size info keyed by disk path (cached; `None` means the lookup failed)
+    pub disk_info_cache: HashMap<PathBuf, Option<DiskInfo>>,
     /// Selected snapshot index
     pub selected_snapshot: usize,
     /// USB devices (cached)
@@ -529,6 +532,7 @@ impl App {
             ascii_art,
             hierarchy,
             snapshots: Vec::new(),
+            disk_info_cache: HashMap::new(),
             selected_snapshot: 0,
             usb_devices: Vec::new(),
             selected_usb_devices: Vec::new(),
@@ -708,6 +712,26 @@ impl App {
         self.selected_vm()
             .map(|vm| self.ascii_art.get_or_fallback(&vm.id))
             .unwrap_or("")
+    }
+
+    /// Ensure disk-size info for the selected VM's disks is cached. Shells out
+    /// to `qemu-img info` only for paths not already in the cache, so calling
+    /// this every frame is cheap once the selected VM's disks are known.
+    pub fn ensure_disk_info_cached(&mut self) {
+        let Some(vm) = self.selected_vm() else {
+            return;
+        };
+        let missing: Vec<PathBuf> = vm
+            .config
+            .disks
+            .iter()
+            .map(|d| d.path.clone())
+            .filter(|p| !self.disk_info_cache.contains_key(p))
+            .collect();
+        for path in missing {
+            let info = crate::vm::get_disk_info(&path).ok();
+            self.disk_info_cache.insert(path, info);
+        }
     }
 
     /// Navigate to a new screen

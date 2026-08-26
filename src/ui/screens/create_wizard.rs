@@ -2197,7 +2197,11 @@ fn render_step_configure_qemu(app: &App, frame: &mut Frame, area: Rect) {
     let net_display = format!(
         "{} adapter{}",
         config.network_adapters.len(),
-        if config.network_adapters.len() == 1 { "" } else { "s" }
+        if config.network_adapters.len() == 1 {
+            ""
+        } else {
+            "s"
+        }
     );
     lines.push(render_field_line(
         "Network:",
@@ -2794,9 +2798,11 @@ fn handle_wizard_port_forward_editor(app: &mut App, key: KeyEvent) -> Result<()>
             let pf_len = app
                 .wizard_state
                 .as_ref()
-                .map(|s| s.qemu_config.network_adapters[s.qemu_config.active_nic]
-                    .port_forwards
-                    .len())
+                .map(|s| {
+                    s.qemu_config.network_adapters[s.qemu_config.active_nic]
+                        .port_forwards
+                        .len()
+                })
                 .unwrap_or(0);
             if app.wizard_pf_selected < pf_len.saturating_sub(1) {
                 app.wizard_pf_selected += 1;
@@ -2818,11 +2824,11 @@ fn handle_wizard_port_forward_editor(app: &mut App, key: KeyEvent) -> Result<()>
         KeyCode::Char('d') | KeyCode::Delete => {
             if let Some(ref mut state) = app.wizard_state {
                 let active_nic = state.qemu_config.active_nic;
-                let port_forwards = &mut state.qemu_config.network_adapters[active_nic].port_forwards;
+                let port_forwards =
+                    &mut state.qemu_config.network_adapters[active_nic].port_forwards;
                 if !port_forwards.is_empty() && app.wizard_pf_selected < port_forwards.len() {
                     port_forwards.remove(app.wizard_pf_selected);
-                    if app.wizard_pf_selected >= port_forwards.len() && app.wizard_pf_selected > 0
-                    {
+                    if app.wizard_pf_selected >= port_forwards.len() && app.wizard_pf_selected > 0 {
                         app.wizard_pf_selected -= 1;
                     }
                 }
@@ -2872,7 +2878,10 @@ fn handle_wizard_nic_list_key(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('a') | KeyCode::Char('A') => {
             // Add a new NIC and jump straight into editing it.
             if let Some(ref mut state) = app.wizard_state {
-                state.qemu_config.network_adapters.push(NicConfig::default());
+                state
+                    .qemu_config
+                    .network_adapters
+                    .push(NicConfig::default());
                 state.qemu_config.active_nic = state.qemu_config.network_adapters.len() - 1;
                 app.wizard_nic_list_cursor = state.qemu_config.active_nic;
             }
@@ -2890,8 +2899,7 @@ fn handle_wizard_nic_list_key(app: &mut App, key: KeyEvent) -> Result<()> {
                     // Keep active_nic pointing at the same adapter it did
                     // before the removal (or the nearest one left).
                     if state.qemu_config.active_nic == cursor {
-                        if state.qemu_config.active_nic
-                            >= state.qemu_config.network_adapters.len()
+                        if state.qemu_config.active_nic >= state.qemu_config.network_adapters.len()
                         {
                             state.qemu_config.active_nic =
                                 state.qemu_config.network_adapters.len() - 1;

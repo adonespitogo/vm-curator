@@ -303,7 +303,8 @@ impl NicConfig {
                 } else {
                     bridge.clone()
                 };
-                seen.insert((id.clone(), effective.clone())).then_some((id.clone(), effective))
+                seen.insert((id.clone(), effective.clone()))
+                    .then_some((id.clone(), effective))
             })
             .collect();
         if resolved.is_empty() {
@@ -333,8 +334,7 @@ impl NicConfig {
                     .flatten()
             })
             .unwrap_or(0);
-        let new_idx =
-            (current_idx as i32 + delta).rem_euclid(resolved.len() as i32) as usize;
+        let new_idx = (current_idx as i32 + delta).rem_euclid(resolved.len() as i32) as usize;
         let (new_backend, new_bridge) = &resolved[new_idx];
         self.backend = new_backend.clone();
         if new_backend == "bridge" {
@@ -849,13 +849,17 @@ impl VNetEditorState {
 
     /// Whether the form differs from its state when opened.
     pub fn dirty(&self) -> bool {
-        (self.name.as_str(), self.kind, self.subnet.as_str(), self.dhcp)
-            != (
-                self.baseline.0.as_str(),
-                self.baseline.1,
-                self.baseline.2.as_str(),
-                self.baseline.3,
-            )
+        (
+            self.name.as_str(),
+            self.kind,
+            self.subnet.as_str(),
+            self.dhcp,
+        ) != (
+            self.baseline.0.as_str(),
+            self.baseline.1,
+            self.baseline.2.as_str(),
+            self.baseline.3,
+        )
     }
 }
 

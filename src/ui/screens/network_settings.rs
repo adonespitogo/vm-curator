@@ -18,7 +18,6 @@ use crate::vm::qemu_config::{PortForward, PortProtocol};
 /// Network adapter model options (same as create wizard)
 const NETWORK_OPTIONS: &[&str] = &["virtio", "e1000", "rtl8139", "ne2k_pci", "pcnet", "none"];
 
-
 /// Render the network settings screen
 pub fn render(app: &App, frame: &mut Frame) {
     let area = frame.area();
@@ -93,9 +92,10 @@ fn render_nic_list(ns: &NetworkSettingsState, frame: &mut Frame, area: Rect) {
 
     frame.render_widget(Paragraph::new(lines), chunks[2]);
 
-    let help = Paragraph::new("[Enter] Edit  [a] Add  [d] Delete  [s] Save  [j/k] Navigate  [Esc] Cancel")
-        .style(Style::default().fg(Color::DarkGray))
-        .alignment(Alignment::Center);
+    let help =
+        Paragraph::new("[Enter] Edit  [a] Add  [d] Delete  [s] Save  [j/k] Navigate  [Esc] Cancel")
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center);
     frame.render_widget(help, chunks[3]);
 }
 
@@ -136,12 +136,8 @@ fn render_nic_editor(app: &App, ns: &NetworkSettingsState, frame: &mut Frame, ar
 
     // Adapter model
     let adapter_selected = ns.selected_field == 0;
-    let adapter_line = render_field_line(
-        "Adapter:",
-        &nic.model,
-        adapter_selected,
-        "[←/→/Tab] cycle",
-    );
+    let adapter_line =
+        render_field_line("Adapter:", &nic.model, adapter_selected, "[←/→/Tab] cycle");
     frame.render_widget(Paragraph::new(adapter_line), chunks[2]);
 
     // Backend
@@ -617,7 +613,8 @@ pub fn handle_key(app: &mut App, key: crossterm::event::KeyEvent) -> anyhow::Res
             let active_nic = ns.active_nic;
             match key.code {
                 KeyCode::Esc => {
-                    ns.mac_edit_buffer = ns.nics[active_nic].mac_address.clone().unwrap_or_default();
+                    ns.mac_edit_buffer =
+                        ns.nics[active_nic].mac_address.clone().unwrap_or_default();
                     ns.editing_mac = false;
                 }
                 KeyCode::Enter => {
@@ -766,7 +763,8 @@ pub fn handle_key(app: &mut App, key: crossterm::event::KeyEvent) -> anyhow::Res
                 // Enter MAC edit mode
                 if let Some(ref mut ns) = app.network_settings_state {
                     let active_nic = ns.active_nic;
-                    ns.mac_edit_buffer = ns.nics[active_nic].mac_address.clone().unwrap_or_default();
+                    ns.mac_edit_buffer =
+                        ns.nics[active_nic].mac_address.clone().unwrap_or_default();
                     ns.editing_mac = true;
                 }
             } else if sel == 3 && show_pf {

@@ -1448,10 +1448,7 @@ fn test_update_network_in_script_multiple_nics_then_back_to_one() {
         5
     );
     assert_eq!(updated.matches("-device e1000,netdev=net0").count(), 5);
-    assert_eq!(
-        updated.matches("virtio-net-pci,netdev=net1").count(),
-        5
-    );
+    assert_eq!(updated.matches("virtio-net-pci,netdev=net1").count(), 5);
     // Other args must survive.
     assert_eq!(updated.matches("-device usb-tablet").count(), 5);
 

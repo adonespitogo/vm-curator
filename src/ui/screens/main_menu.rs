@@ -13,7 +13,7 @@ pub fn render(app: &App, frame: &mut Frame) {
     // The help bar wraps onto as many lines as the terminal width demands,
     // so measure it against this frame's width before laying out the screen.
     let hints = build_help_hints(app);
-    let help_height = wrapped_line_count(&hints, area.width.saturating_sub(2)) + 2;
+    let help_height = hints_line_count(&hints, area.width.saturating_sub(2)) + 2;
 
     // Create main layout
     let chunks = Layout::default()
@@ -100,37 +100,14 @@ fn render_title(app: &App, area: Rect, frame: &mut Frame) {
 /// given terminal width. Exposed so mouse-click hit testing in `ui::mod` can
 /// locate the VM list area without duplicating the hint/wrap layout.
 pub fn help_bar_height(app: &App, width: u16) -> u16 {
-    wrapped_line_count(&build_help_hints(app), width.saturating_sub(2)) + 2
+    hints_line_count(&build_help_hints(app), width.saturating_sub(2)) + 2
 }
 
-/// Approximate the number of lines word-wrapping `spans` needs at `width`
-/// columns (mirrors ratatui's `Wrap { trim: true }` behavior closely enough
-/// for plain space-separated hint text — good enough to size the block that
-/// will actually render it).
-fn wrapped_line_count(spans: &[Span], width: u16) -> u16 {
-    if width == 0 {
-        return 1;
-    }
-    let width = width as usize;
+/// Word-wrapped line count for a list of hint spans (concatenates their text
+/// and delegates to the shared wrap estimator).
+fn hints_line_count(spans: &[Span], width: u16) -> u16 {
     let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-
-    let mut lines: u16 = 1;
-    let mut current_len = 0usize;
-    for word in text.split_whitespace() {
-        let word_len = word.chars().count();
-        let needed = if current_len == 0 {
-            word_len
-        } else {
-            current_len + 1 + word_len
-        };
-        if needed > width && current_len > 0 {
-            lines += 1;
-            current_len = word_len;
-        } else {
-            current_len = needed;
-        }
-    }
-    lines
+    crate::ui::widgets::wrapped_line_count(&text, width)
 }
 
 /// Build the help bar's hint spans, or a status/stopping-VM message that
@@ -214,34 +191,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn wrapped_line_count_fits_on_one_line_when_wide_enough() {
-        let spans = vec![Span::raw("[Enter] Launch  [x] Stop  [m] Manage")];
-        assert_eq!(wrapped_line_count(&spans, 200), 1);
-    }
-
-    #[test]
-    fn wrapped_line_count_wraps_to_multiple_lines_when_narrow() {
-        let spans = vec![Span::raw(
-            "[Enter] Launch  [x] Stop  [m] Manage  [c] Create",
-        )];
-        let narrow = wrapped_line_count(&spans, 20);
+    fn hints_line_count_concatenates_spans_before_wrapping() {
+        let spans = vec![
+            Span::raw("[Enter] Launch  "),
+            Span::raw("[x] Stop  "),
+            Span::raw("[m] Manage"),
+        ];
+        assert_eq!(hints_line_count(&spans, 200), 1);
+        let narrow = hints_line_count(&spans, 10);
         assert!(
             narrow > 1,
-            "expected wrapping at width 20, got {narrow} line(s)"
+            "expected wrapping at width 10, got {narrow} line(s)"
         );
-    }
-
-    #[test]
-    fn wrapped_line_count_never_below_one() {
-        assert_eq!(wrapped_line_count(&[], 50), 1);
-        assert_eq!(wrapped_line_count(&[Span::raw("hi")], 0), 1);
-    }
-
-    #[test]
-    fn wrapped_line_count_never_splits_a_single_word() {
-        // A word longer than the available width still counts as one line
-        // (matches Wrap's behavior of not splitting mid-word).
-        let spans = vec![Span::raw("supercalifragilisticexpialidocious")];
-        assert_eq!(wrapped_line_count(&spans, 5), 1);
     }
 }

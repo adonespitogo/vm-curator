@@ -9,7 +9,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// A user-defined group of VMs.
@@ -86,6 +86,46 @@ pub fn prune_stale(groups: &mut [VmGroup], valid_ids: &HashSet<&str>) -> bool {
         if group.vm_ids.len() != before {
             changed = true;
         }
+    }
+    changed
+}
+
+/// A VM's default group is its OS-family category (the same categorization
+/// the automatic hierarchy view uses) — this assigns each `(vm_id,
+/// category_name)` pair to the matching group, creating that group if it
+/// doesn't exist yet (positioned among the other category groups using
+/// `category_order`, and after any group that isn't a category at all).
+/// A VM already in any group (however it got there) is left alone — this
+/// only ever supplies a *default*, never overrides a user's own choice.
+/// Returns true if anything changed.
+pub fn assign_to_category_groups(
+    groups: &mut Vec<VmGroup>,
+    vm_categories: &[(String, String)],
+    category_order: &HashMap<String, i32>,
+) -> bool {
+    let mut changed = false;
+    for (vm_id, category_name) in vm_categories {
+        if groups.iter().any(|g| g.contains(vm_id)) {
+            continue;
+        }
+
+        let group_idx = match groups.iter().position(|g| &g.name == category_name) {
+            Some(i) => i,
+            None => {
+                let order = category_order
+                    .get(category_name)
+                    .copied()
+                    .unwrap_or(i32::MAX);
+                let insert_at = groups
+                    .iter()
+                    .position(|g| category_order.get(&g.name).copied().unwrap_or(i32::MAX) > order)
+                    .unwrap_or(groups.len());
+                groups.insert(insert_at, VmGroup::new(category_name.clone()));
+                insert_at
+            }
+        };
+        groups[group_idx].vm_ids.push(vm_id.clone());
+        changed = true;
     }
     changed
 }

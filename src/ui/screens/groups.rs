@@ -9,10 +9,16 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
     prelude::*,
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 
 use crate::app::{App, ConfirmAction, Screen, TextInputContext};
+use crate::ui::widgets::wrapped_line_count;
+
+const INTRO_TEXT: &str = "Freeform groups of VMs, seeded from each VM's OS category. \
+    Once any exist, they replace the automatic OS-family list on the main menu, in the order shown below.";
+const HELP_TEXT: &str =
+    "[c] Create  [r] Rename  [d] Delete  [Enter] Manage VMs  [Shift+J/K] Reorder  [Esc] Back";
 
 pub fn render(app: &App, frame: &mut Frame) {
     let area = frame.area();
@@ -38,21 +44,25 @@ pub fn render(app: &App, frame: &mut Frame) {
         ])
         .split(inner);
 
+    // Intro and help text wrap to however many lines the dialog's width
+    // needs, instead of being silently clipped on narrower terminals.
+    let text_width = h_chunks[1].width;
+    let intro_lines = wrapped_line_count(INTRO_TEXT, text_width);
+    let help_lines = wrapped_line_count(HELP_TEXT, text_width);
+
     let v_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2), // Header/intro
-            Constraint::Length(1), // Spacer
-            Constraint::Min(4),    // Group list
-            Constraint::Length(2), // Help
+            Constraint::Length(intro_lines), // Header/intro
+            Constraint::Length(1),           // Spacer
+            Constraint::Min(4),              // Group list
+            Constraint::Length(help_lines),  // Help
         ])
         .split(h_chunks[1]);
 
-    let intro = Paragraph::new(
-        "Freeform groups of VMs. Once any exist, they replace the automatic\n\
-         OS-family list on the main menu, in the order shown below.",
-    )
-    .style(Style::default().fg(Color::Yellow));
+    let intro = Paragraph::new(INTRO_TEXT)
+        .style(Style::default().fg(Color::Yellow))
+        .wrap(Wrap { trim: true });
     frame.render_widget(intro, v_chunks[0]);
 
     if app.groups.is_empty() {
@@ -93,11 +103,10 @@ pub fn render(app: &App, frame: &mut Frame) {
         frame.render_stateful_widget(list, v_chunks[2], &mut state);
     }
 
-    let help = Paragraph::new(
-        "[c] Create  [r] Rename  [d] Delete  [Enter] Manage VMs  [Shift+J/K] Reorder  [Esc] Back",
-    )
-    .style(Style::default().fg(Color::DarkGray))
-    .alignment(Alignment::Center);
+    let help = Paragraph::new(HELP_TEXT)
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true });
     frame.render_widget(help, v_chunks[3]);
 }
 

@@ -433,11 +433,35 @@ impl App {
 
         // Load user-defined VM groups, dropping membership for any VM id that
         // no longer exists (e.g. deleted while the app wasn't running).
-        let mut groups = crate::groups::load_groups(&crate::groups::groups_file_path());
+        let groups_path = crate::groups::groups_file_path();
+        // A VM's default group is its OS category: on first run (no
+        // groups.toml yet) this seeds one group per category, so users start
+        // from the same organization the automatic hierarchy already gave
+        // them, editable from here on; on later runs it just tops up any VM
+        // that isn't in a group yet (e.g. a folder added by hand between
+        // sessions). Skipped when groups.toml exists but is empty — that
+        // means the user deliberately cleared their groups (falling back to
+        // the automatic OS-family view), and that choice should stick.
+        let is_first_run = !groups_path.exists();
+        let mut groups = crate::groups::load_groups(&groups_path);
+        let mut groups_changed = false;
+        if is_first_run || !groups.is_empty() {
+            let category_order = family_order_map(&hierarchy);
+            let vm_categories: Vec<(String, String)> = vms
+                .iter()
+                .filter_map(|vm| category_of(&hierarchy, vm))
+                .collect();
+            groups_changed |= crate::groups::assign_to_category_groups(
+                &mut groups,
+                &vm_categories,
+                &category_order,
+            );
+        }
         let valid_ids: std::collections::HashSet<&str> =
             vms.iter().map(|vm| vm.id.as_str()).collect();
-        if crate::groups::prune_stale(&mut groups, &valid_ids) {
-            let _ = crate::groups::save_groups(&crate::groups::groups_file_path(), &groups);
+        groups_changed |= crate::groups::prune_stale(&mut groups, &valid_ids);
+        if groups_changed {
+            let _ = crate::groups::save_groups(&groups_path, &groups);
         }
 
         // Step 6: Build visual order and detect display capabilities
@@ -724,7 +748,35 @@ impl App {
         self.vms = discover_vms(&self.config.vm_library_path)?;
         self.update_filter();
         self.prune_stale_group_memberships();
+        self.assign_ungrouped_vms_to_category_groups();
         Ok(())
+    }
+
+    /// A VM's default group is its OS category — assign any VM that isn't in
+    /// any group yet to the matching category group, creating that group if
+    /// needed (covers VM creation, import, or a rescan finding a folder added
+    /// by hand). A no-op while `groups` is empty: the user cleared every
+    /// group deliberately (falling back to the automatic OS-family view), and
+    /// that choice should stick until they start using groups again — it
+    /// shouldn't get silently reversed by the next VM change.
+    fn assign_ungrouped_vms_to_category_groups(&mut self) {
+        if self.groups.is_empty() {
+            return;
+        }
+        let category_order = family_order_map(&self.hierarchy);
+        let vm_categories: Vec<(String, String)> = self
+            .vms
+            .iter()
+            .filter_map(|vm| category_of(&self.hierarchy, vm))
+            .collect();
+
+        if crate::groups::assign_to_category_groups(
+            &mut self.groups,
+            &vm_categories,
+            &category_order,
+        ) {
+            self.persist_groups();
+        }
     }
 
     /// Drop group memberships for VM ids that no longer exist (e.g. deleted
@@ -1661,6 +1713,30 @@ impl App {
             .and_then(|s| s.selected_os.as_ref())
             .and_then(|os_id| self.qemu_profiles.get(os_id))
     }
+}
+
+/// A VM's OS category — the family name from the automatic hierarchy — used
+/// as its default group. `None` only if the categorized family id doesn't
+/// match any configured family, which shouldn't happen since `categorize`
+/// always falls back to the "other" family.
+fn category_of(hierarchy: &HierarchyConfig, vm: &DiscoveredVm) -> Option<(String, String)> {
+    let categorize_id = vm.os_profile.as_deref().unwrap_or(vm.id.as_str());
+    let (family_id, _subcategory_id) = hierarchy.categorize(categorize_id);
+    hierarchy
+        .families
+        .iter()
+        .find(|f| f.id == family_id)
+        .map(|f| (vm.id.clone(), f.name.clone()))
+}
+
+/// Family display name -> sort order, for placing newly-created category
+/// groups among each other in the same order the hierarchy view uses.
+fn family_order_map(hierarchy: &HierarchyConfig) -> HashMap<String, i32> {
+    hierarchy
+        .families
+        .iter()
+        .map(|f| (f.name.clone(), f.order))
+        .collect()
 }
 
 /// Extract the PCI host address (e.g. `0000:01:00.0`) from a saved passthrough

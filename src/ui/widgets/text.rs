@@ -1,5 +1,18 @@
 //! Small text-layout helpers shared across screens.
 
+/// Non-breaking space: use this instead of a regular space between two
+/// pieces of text (e.g. a `[key]` and its label) that must never be split
+/// across a wrap. Ratatui's real `Wrap` treats it as non-breaking (see
+/// `ratatui_core::text::grapheme::StyledGrapheme::is_whitespace`), and
+/// [`wrapped_line_count`] mirrors that exactly so its estimate matches what
+/// actually renders.
+pub const NBSP: char = '\u{a0}';
+
+/// A wrap break is only possible at whitespace that isn't [`NBSP`].
+fn is_breaking_whitespace(c: char) -> bool {
+    c.is_whitespace() && c != NBSP
+}
+
 /// Approximate the number of lines word-wrapping `text` needs at `width`
 /// columns (mirrors ratatui's `Wrap { trim: true }` behavior closely enough
 /// for plain space-separated text — good enough to size the block that will
@@ -10,7 +23,8 @@
 /// collapsing them to a single space) — hint text is built from spans like
 /// `" Launch "` + `" [x]"`, which routinely leaves double spaces between
 /// entries, and treating those as single spaces under-counts the width
-/// actually needed and under-allocates the container's height.
+/// actually needed and under-allocates the container's height. [`NBSP`]
+/// runs never count as a break point, matching ratatui.
 pub fn wrapped_line_count(text: &str, width: u16) -> u16 {
     if width == 0 {
         return 1;
@@ -23,13 +37,13 @@ pub fn wrapped_line_count(text: &str, width: u16) -> u16 {
 
     loop {
         let mut space_len = 0usize;
-        while chars.peek().is_some_and(|c| c.is_whitespace()) {
+        while chars.peek().is_some_and(|&c| is_breaking_whitespace(c)) {
             space_len += 1;
             chars.next();
         }
 
         let mut word_len = 0usize;
-        while chars.peek().is_some_and(|c| !c.is_whitespace()) {
+        while chars.peek().is_some_and(|&c| !is_breaking_whitespace(c)) {
             word_len += 1;
             chars.next();
         }
@@ -97,6 +111,19 @@ mod tests {
         // (4 + 1 + 2 = 7) would incorrectly say it fits.
         assert_eq!(wrapped_line_count("AAAA  BB", 7), 2);
         assert_eq!(wrapped_line_count("AAAA  BB", 8), 1);
+    }
+
+    #[test]
+    fn nbsp_glues_a_key_and_its_label_together_across_a_wrap() {
+        // "[q]" + NBSP + "Quit" must never split — verified against the
+        // exact bug: without NBSP, a width that fits "... [q]" but not
+        // "... [q] Quit" would wrap "[q]" and "Quit" onto separate lines.
+        let with_nbsp = format!("[Enter] Launch  [q]{NBSP}Quit");
+        // Width fits "[Enter] Launch  [q]" (20 chars) but not "...+Quit" (25).
+        assert_eq!(wrapped_line_count(&with_nbsp, 20), 2);
+        // And the whole "[q]\u{a0}Quit" unit moves to line 2 together —
+        // i.e. line 2 needs exactly its own width (8 chars), not split further.
+        assert_eq!(wrapped_line_count(&with_nbsp, 7), 3);
     }
 
     #[test]

@@ -17,8 +17,10 @@ use crate::ui::widgets::wrapped_line_count;
 
 const INTRO_TEXT: &str = "Freeform groups of VMs, seeded from each VM's OS category. \
     Once any exist, they replace the automatic OS-family list on the main menu, in the order shown below.";
-const HELP_TEXT: &str =
-    "[c] Create  [r] Rename  [d] Delete  [Enter] Manage VMs  [Shift+J/K] Reorder  [Esc] Back";
+// Non-breaking spaces (\u{a0}) glue each [key] to its label so a wrap can
+// only land between hints, never split a key from its own label.
+const HELP_TEXT: &str = "[c]\u{a0}Create  [r]\u{a0}Rename  [d]\u{a0}Delete  \
+    [Enter]\u{a0}Manage\u{a0}VMs  [Shift+J/K]\u{a0}Reorder  [Esc]\u{a0}Back";
 
 pub fn render(app: &App, frame: &mut Frame) {
     let area = frame.area();

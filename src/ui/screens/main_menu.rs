@@ -217,6 +217,9 @@ fn render_help_bar(content: HelpContent, area: Rect, frame: &mut Frame) {
 fn render_help_grid(items: &[(&str, &str)], area: Rect, frame: &mut Frame) {
     let (cols, rows) = grid_dimensions(items.len(), max_item_text_width(items), area.width);
 
+    // A 1-cell left margin keeps the first column's hints from butting up
+    // against the block border now that columns are left-aligned.
+    let area = area.inner(Margin::new(1, 0));
     let col_constraints = vec![Constraint::Ratio(1, cols as u32); cols];
     let col_chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -240,7 +243,7 @@ fn render_help_grid(items: &[(&str, &str)], area: Rect, frame: &mut Frame) {
             })
             .collect();
 
-        let para = Paragraph::new(lines).alignment(Alignment::Center);
+        let para = Paragraph::new(lines).alignment(Alignment::Left);
         frame.render_widget(para, *chunk);
     }
 }

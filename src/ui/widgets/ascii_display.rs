@@ -173,12 +173,14 @@ fn push_config_lines(
         ));
     }
     for disk in &config.disks {
+        let file_name = disk
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy())
+            .unwrap_or_else(|| disk.path.to_string_lossy());
         let mut line = format!(
             "  {} — {:?}, {} [{:?}]",
-            disk.path.display(),
-            disk.format,
-            disk.interface,
-            disk.role
+            file_name, disk.format, disk.interface, disk.role
         );
         if let Some(Some(info)) = disk_info.get(&disk.path) {
             line.push_str(&format!(

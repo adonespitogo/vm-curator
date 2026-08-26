@@ -125,7 +125,9 @@ pub fn render(app: &App, frame: &mut Frame) {
 fn render_editor(editor: &VNetEditorState, frame: &mut Frame) {
     let area = frame.area();
     let dialog_width = 56.min(area.width.saturating_sub(6));
-    let dialog_height = 15.min(area.height.saturating_sub(6));
+    // Content needs 11 rows (4 fields + button + spacer + 3-row info + 2-row help)
+    // plus 2 border rows and 2 margin rows = 15 minimum to avoid clipping.
+    let dialog_height = 16.min(area.height.saturating_sub(4));
     let dialog_area = centered_rect(dialog_width, dialog_height, area);
     frame.render_widget(Clear, dialog_area);
 
@@ -150,6 +152,7 @@ fn render_editor(editor: &VNetEditorState, frame: &mut Frame) {
             Constraint::Length(1), // Type
             Constraint::Length(1), // Subnet
             Constraint::Length(1), // DHCP
+            Constraint::Length(1), // Create/Save button
             Constraint::Length(1), // Spacer
             Constraint::Length(3), // Info / error
             Constraint::Length(2), // Help
@@ -212,6 +215,27 @@ fn render_editor(editor: &VNetEditorState, frame: &mut Frame) {
         chunks[3],
     );
 
+    let button_focused = editor.field_focus == 4;
+    let button_label = if editor.original_name.is_some() {
+        "Save Network"
+    } else {
+        "Create Network"
+    };
+    let button_style = if button_focused {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Yellow)
+    };
+    let button = Paragraph::new(Line::from(Span::styled(
+        format!("[ {button_label} ]"),
+        button_style,
+    )))
+    .alignment(Alignment::Center);
+    frame.render_widget(button, chunks[4]);
+
     let info = if let Some(err) = &editor.error {
         Paragraph::new(err.clone()).style(Style::default().fg(Color::Red))
     } else {
@@ -221,17 +245,19 @@ fn render_editor(editor: &VNetEditorState, frame: &mut Frame) {
         )
         .style(Style::default().fg(Color::DarkGray))
     };
-    frame.render_widget(info, chunks[5]);
+    frame.render_widget(info, chunks[6]);
 
     let help_text = if editor.editing {
         "[Enter] Done  [Esc] Cancel edit"
+    } else if button_focused {
+        "[j/k] Field  [Enter] Save  [Esc] Cancel"
     } else {
         "[j/k] Field  [Enter/Tab] Edit field  [←/→] Toggle  [s] Save  [Esc] Cancel"
     };
     let help = Paragraph::new(help_text)
         .style(Style::default().fg(Color::DarkGray))
         .alignment(Alignment::Center);
-    frame.render_widget(help, chunks[6]);
+    frame.render_widget(help, chunks[7]);
 }
 
 pub fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
@@ -332,6 +358,12 @@ fn handle_editor_key(app: &mut App, key: KeyEvent) -> Result<()> {
             save_editor(app);
             return Ok(());
         }
+        KeyCode::Enter | KeyCode::Tab
+            if app.vnet_editor.as_ref().map(|e| e.field_focus) == Some(4) =>
+        {
+            save_editor(app);
+            return Ok(());
+        }
         _ => {}
     }
 
@@ -340,7 +372,7 @@ fn handle_editor_key(app: &mut App, key: KeyEvent) -> Result<()> {
     };
     match key.code {
         KeyCode::Char('j') | KeyCode::Down => {
-            if editor.field_focus < 3 {
+            if editor.field_focus < 4 {
                 editor.field_focus += 1;
             }
         }

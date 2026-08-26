@@ -566,7 +566,7 @@ pub struct VNetEditorState {
     pub kind: crate::vnet::VNetKind,
     pub subnet: String,
     pub dhcp: bool,
-    /// 0 = name, 1 = type, 2 = subnet, 3 = DHCP toggle
+    /// 0 = name, 1 = type, 2 = subnet, 3 = DHCP toggle, 4 = Create/Save button
     pub field_focus: usize,
     /// True while a text field is being edited
     pub editing: bool,

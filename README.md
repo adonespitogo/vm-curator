@@ -1,37 +1,32 @@
 # vm-curator
 
-A fast and friendly Rust TUI for managing desktop QEMU/KVM virtual machines — with 3D acceleration, GPU and physical-disk passthrough, managed virtual networks, VM import, and 130+ pre-configured OS profiles!
+A fast and friendly Rust TUI for managing desktop QEMU/KVM virtual machines — with 3D acceleration, GPU and physical-disk passthrough, managed virtual networks, multi-NIC VMs, freeform VM groups, VM import, and 130+ pre-configured OS profiles!
 
-### Changelog
-
-**v1.4.0**
-- **Physical Disk Passthrough as Boot Device** (#80): Pass whole NVMe/SATA/USB disks straight through to guests — a new **Physical Disk** mode in the creation wizard (with a safety-filtered picker that excludes the host system disk, mounted disks, and LVM/swap members) and a **Passthrough Disks** management screen for existing VMs, with per-disk boot index; USB passthrough gains a boot-index option too. Also fixes a latent bug where Fedora's qcow2 OVMF firmware could be mistaken for the VM's disk — letting Reset VM delete it
-- **Virtual Network Manager** (#53): Create, edit, start/stop, and delete managed **NAT** or **Isolated** (host-only) networks from the new Networks screen (`n`), with configurable subnets and built-in DHCP — ideal for multi-VM labs. Host changes run only via inspectable generated `net-up.sh`/`net-down.sh` scripts with explicit sudo; managed networks appear in the per-VM bridge picker, and launching against a stopped network gives a clear error
-- **Homebrew Tap** (#77): `brew install mroboff/tap/vm-curator` — for atomic distros like Bluefin/Silverblue; the formula tracks releases automatically
-- **Fix Relative VM Library Paths** (#79): Entering a relative path (e.g. `VMs`) at setup made discovery cwd-dependent and broke launching entirely; paths are now anchored at home, and existing configs self-heal on load
-
-**v1.3.0**
-- **Configurable VM Window Size** (thanks @HenriqueCrj, #67): New Settings entry sets the initial display resolution for launched VMs (`WIDTHxHEIGHT`, e.g. `1440x900`) — applied at runtime via an environment variable on scripts using standard VGA, virtio-vga, virtio-vga-gl, or QXL video; existing scripts are patched automatically, and hand-customized video setups are left alone
-- **Fix Shared Folders with Spaces in Paths** (thanks @HenriqueCrj, #66): The managed `SHARED_FOLDERS_ARGS` section is now a properly quoted bash array, so host paths containing spaces or quotes no longer break the launch script
-- **Fix USB Passthrough Launch Handling** (#66): Launching from the TUI no longer passes USB QEMU flags as shell options `launch.sh` can't parse — the USB section saved in the script is the single source of truth
-- **Fix UEFI Boot Delays from Stale NVRAM Entries** (#66): Normal UEFI boots now pin the disk first (`-boot strict=on` + virtio `bootindex=0`), so guests that once registered PXE/HTTP boot entries stop waiting on network boot every start
-- **Keep Management Screens Open When Saving Fails** (#66): A failed save from the USB/PCI/Shared Folders unsaved-changes prompt no longer closes the screen and discards your selections
-
-**v1.2.3**
-- **Hide-KVM Toggle for Single-GPU Passthrough** (#71): The hypervisor-hiding CPU flags (`kvm=off,hv_vendor_id=…`) previously emitted only for NVIDIA are now a per-VM toggle (`[h]` in the Single GPU Setup screen) that defaults **on for AMD too** — fixes Code 43 / black screen in Windows guests on modern AMD cards like the RX 9070 XT; regenerate scripts to apply
-- **Fix App Quitting When Typing 'q' in Settings** (#72): Editing a Settings value containing `q` (e.g. a path like `~/qemu-vms`) no longer quits the app — `q` still quits when just browsing
-
-[Full changelog](CHANGELOG.md)
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ### Features
 
 **VM Discovery & Organization**
 - Automatically scans your VM library for directories containing `launch.sh` scripts
-- Hierarchical organization by 16 OS families with emoji icons and 50 subcategories
+- Hierarchical organization by 16 OS families with emoji icons and 50 subcategories (used automatically until you define your own VM Groups, see below)
 - Parses QEMU launch scripts to extract configuration (emulator, memory, CPU, VGA, audio, network, disks)
 - Smart categorization with configurable hierarchy patterns
 - Live process monitoring — shows running VMs with status indicators
 - Search and filter VMs by name
+
+**VM Info Panel**
+- The main menu's info panel shows a live overview of the selected VM's actual QEMU configuration — no more digging through `launch.sh` to check what a VM is set up with
+- Hardware: architecture, CPU cores/model, memory, machine type, and KVM/UEFI/TPM/3D-acceleration feature flags
+- Disks: full path, format, interface, and role (system/firmware/media), plus used/capacity size read live via `qemu-img info` (cached per disk so browsing the VM list stays instant)
+- Network topology: every NIC's backend (user/SLIRP, passt, bridge), bridge name, MAC address, and forwarded ports
+- ASCII art and your free-form VM notes are still shown alongside it
+
+**VM Groups**
+- Organize VMs into freeform groups instead of (or alongside) the automatic OS-family hierarchy — press `g` on the main menu
+- Create, rename, delete, and reorder groups (`Shift+J`/`Shift+K`), and manage which VMs belong to each
+- New VMs default into a group matching their OS category, or pick a group explicitly (or type a new one) from the Create/Import wizards' review step
+- Once any group is defined, the main menu's VM list follows your group order (with a trailing "Ungrouped" section); clearing all groups falls back to the automatic hierarchy
+- Persisted to `~/.config/vm-curator/groups.toml`, auto-pruned of stale VM ids as VMs are deleted or the library is rescanned
 
 **VM Creation Wizard**
 - 5-step guided wizard for creating new VMs
@@ -73,10 +68,12 @@ A fast and friendly Rust TUI for managing desktop QEMU/KVM virtual machines — 
 - Stable `/dev/disk/by-id` device paths, per-disk firmware boot index, and launch-time preflight checks (device present, read/write access with fix hints, refuses mounted partitions)
 
 **Network Configuration**
-- Network backend selection: user/SLIRP (NAT), passt, bridge, or none
+- **Multiple network adapters per VM**: add or remove NICs from a per-VM list (`[a]` add, `[d]` delete) in both the creation wizard and the Network Settings screen, each with its own model, backend, and settings
+- Network backend selection per adapter: user/SLIRP (NAT), passt, bridge, or none
 - Port forwarding with presets for common services (SSH, RDP, HTTP, HTTPS, VNC)
-- Bridge networking with automatic bridge detection, status checklist, and setup guidance
-- Configurable network adapter models per VM
+- Bridge networking with automatic bridge detection, status checklist, and setup guidance — cycling through bridge options also steps through every managed Virtual Network Manager network
+- Configurable network adapter model and MAC address per NIC
+- Network Settings has explicit Save/Discard with an unsaved-changes confirmation, at both the per-NIC and whole-screen level
 - **Virtual Network Manager** (`n` on the main menu): create, edit, start/stop, and delete managed NAT or Isolated (host-only) networks with configurable subnets and built-in DHCP — ideal for multi-VM lab topologies. Host changes run via inspectable generated `net-up.sh`/`net-down.sh` scripts with explicit sudo
 
 **Shared Folders**
@@ -118,7 +115,7 @@ A fast and friendly Rust TUI for managing desktop QEMU/KVM virtual machines — 
 - Headless VM support (display=none) with process monitoring
 - Stop/force-stop VMs (ACPI poweroff or SIGKILL)
 - VM rename with persistent custom display names
-- OS metadata with historical blurbs, fun facts, and multi-step installation guides
+- OS metadata system (publisher, release date, descriptions, fun facts) with user overrides in `~/.config/vm-curator/metadata/`
 - 42+ ASCII art logos for classic and modern operating systems
 - BTRFS copy-on-write auto-disable for VM directories
 - First-time setup wizard for configuring the VM library directory
@@ -132,20 +129,26 @@ A fast and friendly Rust TUI for managing desktop QEMU/KVM virtual machines — 
 │ ┌─────────────────────────┐  ┌────────────────────────────────────┐ │
 │ │ VMs (35)                │  │       _    _ _           _        │ │
 │ │ ──────────────────────  │  │      | |  | (_)         | |       │ │
-│ │ 🪟 Microsoft            │  │      | |/\| |_ _ __   __| | ___   │ │
-│ │   ▼ DOS                 │  │      \  /\  / | '_ \ / _` |/ _ \  │ │
-│ │     > MS-DOS 6.22   [*] │  │       \/  \/|_|_| |_|\__,_|\___/  │ │
-│ │     > Windows 3.11      │  │                                   │ │
-│ │   ▼ Windows 9x          │  │   Windows 95 OSR2.5               │ │
-│ │     > Windows 95        │  │   Microsoft | August 1995 | i386  │ │
-│ │     > Windows 98        │  │                                   │ │
-│ │ 🐧 Linux                │  │   The OS that changed everything  │ │
-│ │   ▼ Debian-based        │  │   with the Start Menu, taskbar,   │ │
-│ │     > Debian 12         │  │   and 32-bit computing for all.   │ │
-│ │     > Ubuntu 24.04      │  │                                   │ │
+│ │ 📁 Daily Drivers        │  │      | |/\| |_ _ __   __| | ___   │ │
+│ │     > Windows 11    [*] │  │       \/  \/|_|_| |_|\__,_|\___/  │ │
+│ │     > Debian 12         │  │                                   │ │
+│ │ 📁 Retro                │  │   Windows 11                      │ │
+│ │     > MS-DOS 6.22       │  │   Windows 11 | Microsoft | 2021   │ │
+│ │     > Windows 95        │  │                                   │ │
+│ │ 🐧 Ungrouped            │  │   Hardware                        │ │
+│ │     > Ubuntu 24.04      │  │   Architecture: x86_64            │ │
+│ │                         │  │   CPU: 4 cores (host)             │ │
+│ │                         │  │   Memory: 4096 MB (4.0 GB)        │ │
+│ │                         │  │   Features: KVM, UEFI, TPM        │ │
+│ │                         │  │                                   │ │
+│ │                         │  │   Disks                           │ │
+│ │                         │  │     disk.qcow2 (25.5G/64.0G)      │ │
+│ │                         │  │                                   │ │
+│ │                         │  │   Network                         │ │
+│ │                         │  │     NIC 1: virtio — bridge: vmc0  │ │
 │ └─────────────────────────┘  └────────────────────────────────────┘ │
 ├─────────────────────────────────────────────────────────────────────┤
-│ [Enter] Launch  [m] Manage  [c] Create  [n] Networks  [?] Help     │
+│ [Enter] Launch  [m] Manage  [c] Create  [n] Networks  [g] Groups   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -266,6 +269,7 @@ vm-curator emulators
 | `i` | Open VM import wizard |
 | `s` | Open settings |
 | `n` | Virtual Network Manager |
+| `g` | Manage VM Groups |
 | `/` | Search/filter VMs |
 | `?` | Show help |
 | `PgUp/PgDn` | Scroll info panel |

@@ -11,7 +11,7 @@ use ratatui::{
 };
 
 use crate::app::{
-    App, DiskAction, DiskImageFormat, FileBrowserMode, WizardDiskSource, WizardField,
+    App, DiskAction, DiskImageFormat, FileBrowserMode, GroupChoice, WizardDiskSource, WizardField,
     WizardQemuConfig, WizardStep,
 };
 use crate::metadata::QemuProfileStore;
@@ -3440,6 +3440,7 @@ fn render_step_confirm(app: &App, frame: &mut Frame, area: Rect) {
             Constraint::Length(1), // Header
             Constraint::Length(1), // Spacer
             Constraint::Min(15),   // Summary
+            Constraint::Length(3), // Group choice
             Constraint::Length(3), // Auto-launch toggle
             Constraint::Length(1), // Error
             Constraint::Length(2), // Help
@@ -3610,6 +3611,29 @@ fn render_step_confirm(app: &App, frame: &mut Frame, area: Rect) {
     let summary = Paragraph::new(lines).wrap(Wrap { trim: false });
     frame.render_widget(summary, chunks[2]);
 
+    // Group choice
+    let group_editing = matches!(state.editing_field, Some(WizardField::GroupName));
+    let group_box = Block::default()
+        .title(" Group ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(if group_editing {
+            Color::Yellow
+        } else {
+            Color::Gray
+        }));
+    let group_text = if group_editing {
+        Paragraph::new(format!("{}_", state.wizard_edit_buffer))
+            .style(Style::default().fg(Color::Cyan))
+    } else {
+        Paragraph::new(format!(
+            "{}  (←/→ change, [g] new group)",
+            state.group_choice.label()
+        ))
+        .style(Style::default().fg(Color::White))
+    }
+    .block(group_box);
+    frame.render_widget(group_text, chunks[3]);
+
     // Auto-launch toggle
     let launch_box = Block::default()
         .borders(Borders::ALL)
@@ -3621,22 +3645,59 @@ fn render_step_confirm(app: &App, frame: &mut Frame, area: Rect) {
     ))
     .style(Style::default().fg(Color::White))
     .block(launch_box);
-    frame.render_widget(launch_text, chunks[3]);
+    frame.render_widget(launch_text, chunks[4]);
 
     // Error
     if let Some(ref error) = state.error_message {
         let error_text = Paragraph::new(error.as_str()).style(Style::default().fg(Color::Red));
-        frame.render_widget(error_text, chunks[4]);
+        frame.render_widget(error_text, chunks[5]);
     }
 
     // Help
-    let help = Paragraph::new("[Enter] Create VM  [Space] Toggle launch  [Esc] Back")
-        .style(Style::default().fg(Color::DarkGray))
-        .alignment(Alignment::Center);
-    frame.render_widget(help, chunks[5]);
+    let help = Paragraph::new(
+        "[Enter] Create VM  [Space] Toggle launch  [←/→] Group  [g] New group  [Esc] Back",
+    )
+    .style(Style::default().fg(Color::DarkGray))
+    .alignment(Alignment::Center);
+    frame.render_widget(help, chunks[6]);
 }
 
 fn handle_step_confirm(app: &mut App, key: KeyEvent) -> Result<()> {
+    let editing_group = app
+        .wizard_state
+        .as_ref()
+        .map(|s| matches!(s.editing_field, Some(WizardField::GroupName)))
+        .unwrap_or(false);
+
+    if editing_group {
+        if let Some(ref mut state) = app.wizard_state {
+            match key.code {
+                KeyCode::Esc => {
+                    state.editing_field = None;
+                    state.wizard_edit_buffer.clear();
+                }
+                KeyCode::Enter | KeyCode::Tab => {
+                    let trimmed = state.wizard_edit_buffer.trim().to_string();
+                    state.group_choice = if trimmed.is_empty() {
+                        GroupChoice::Default
+                    } else {
+                        GroupChoice::New(trimmed)
+                    };
+                    state.editing_field = None;
+                    state.wizard_edit_buffer.clear();
+                }
+                KeyCode::Char(c) => {
+                    state.wizard_edit_buffer.push(c);
+                }
+                KeyCode::Backspace => {
+                    state.wizard_edit_buffer.pop();
+                }
+                _ => {}
+            }
+        }
+        return Ok(());
+    }
+
     match key.code {
         KeyCode::Esc => {
             app.wizard_prev_step();
@@ -3644,6 +3705,25 @@ fn handle_step_confirm(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char(' ') => {
             if let Some(ref mut state) = app.wizard_state {
                 state.auto_launch = !state.auto_launch;
+            }
+        }
+        KeyCode::Left => {
+            let existing = app.group_names();
+            if let Some(ref mut state) = app.wizard_state {
+                state.group_choice = state.group_choice.prev(&existing);
+            }
+        }
+        KeyCode::Right => {
+            let existing = app.group_names();
+            if let Some(ref mut state) = app.wizard_state {
+                state.group_choice = state.group_choice.next(&existing);
+            }
+        }
+        KeyCode::Char('g') | KeyCode::Char('G') => {
+            if let Some(ref mut state) = app.wizard_state {
+                state.wizard_edit_buffer =
+                    state.group_choice.target_name().unwrap_or("").to_string();
+                state.editing_field = Some(WizardField::GroupName);
             }
         }
         KeyCode::Enter => {
@@ -3658,16 +3738,27 @@ fn handle_step_confirm(app: &mut App, key: KeyEvent) -> Result<()> {
             // Clone the state for creation
             let state = app.wizard_state.as_ref().unwrap().clone();
             let vm_name = state.vm_name.clone();
+            let group_choice = state.group_choice.clone();
 
             match create_vm_with_disk_format(&library_path, &state, app.create_wizard_disk_format) {
                 Ok(created) => {
                     // Cancel wizard first (closes screens)
                     app.cancel_wizard();
 
-                    // Refresh VM list to include the new VM
+                    // Refresh VM list to include the new VM (this already
+                    // assigns it to its OS-category default group, if any
+                    // groups exist — an explicit group_choice below overrides
+                    // that default).
                     match app.refresh_vms() {
                         Ok(()) => {
                             app.set_status(format!("VM created: {}", vm_name));
+                            if let Some(group_name) = group_choice.target_name() {
+                                if let Some(vm_id) =
+                                    created.path.file_name().and_then(|n| n.to_str())
+                                {
+                                    app.set_vm_group(vm_id, group_name);
+                                }
+                            }
                         }
                         Err(e) => {
                             app.set_status(format!("VM created but refresh failed: {}", e));

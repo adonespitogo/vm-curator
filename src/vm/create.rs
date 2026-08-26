@@ -293,8 +293,7 @@ fn find_ovmf_firmware(secboot: bool) -> Option<OvmfFirmware> {
 /// Result of creating a new VM
 #[derive(Debug)]
 pub struct CreatedVm {
-    /// Path to the VM directory - reserved for future use
-    #[allow(dead_code)]
+    /// Path to the VM directory
     pub path: PathBuf,
     /// Path to the launch script
     pub launch_script: PathBuf,

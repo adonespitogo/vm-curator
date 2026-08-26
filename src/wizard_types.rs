@@ -5,6 +5,74 @@ use crate::vm::qemu_config::{PortForward, PortProtocol};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
+/// Which group a wizard-created/imported VM should join.
+///
+/// `Default` defers to the same OS-category default `App::refresh_vms`
+/// already assigns any newly-discovered, ungrouped VM to — no extra action
+/// needed. `Existing`/`New` are an explicit override, applied once the VM
+/// exists via `App::set_vm_group`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum GroupChoice {
+    #[default]
+    Default,
+    Existing(String),
+    New(String),
+}
+
+impl GroupChoice {
+    /// Human-readable label for display.
+    pub fn label(&self) -> String {
+        match self {
+            GroupChoice::Default => "Default (OS category)".to_string(),
+            GroupChoice::Existing(name) | GroupChoice::New(name) => name.clone(),
+        }
+    }
+
+    /// The explicit group name to join, or `None` for the default.
+    pub fn target_name(&self) -> Option<&str> {
+        match self {
+            GroupChoice::Default => None,
+            GroupChoice::Existing(name) | GroupChoice::New(name) => Some(name.as_str()),
+        }
+    }
+
+    /// Cycle forward: Default -> each of `existing_groups` in order -> Default.
+    pub fn next(&self, existing_groups: &[String]) -> Self {
+        match self {
+            GroupChoice::Default | GroupChoice::New(_) => existing_groups
+                .first()
+                .cloned()
+                .map(GroupChoice::Existing)
+                .unwrap_or(GroupChoice::Default),
+            GroupChoice::Existing(name) => {
+                let next_idx = existing_groups
+                    .iter()
+                    .position(|g| g == name)
+                    .map(|i| i + 1);
+                match next_idx.and_then(|i| existing_groups.get(i)) {
+                    Some(next) => GroupChoice::Existing(next.clone()),
+                    None => GroupChoice::Default,
+                }
+            }
+        }
+    }
+
+    /// Cycle backward: the mirror of [`Self::next`].
+    pub fn prev(&self, existing_groups: &[String]) -> Self {
+        match self {
+            GroupChoice::Default | GroupChoice::New(_) => existing_groups
+                .last()
+                .cloned()
+                .map(GroupChoice::Existing)
+                .unwrap_or(GroupChoice::Default),
+            GroupChoice::Existing(name) => match existing_groups.iter().position(|g| g == name) {
+                Some(0) | None => GroupChoice::Default,
+                Some(i) => GroupChoice::Existing(existing_groups[i - 1].clone()),
+            },
+        }
+    }
+}
+
 /// Disk image format to create for new VMs
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DiskImageFormat {
@@ -327,6 +395,7 @@ pub enum WizardField {
     CustomOsPublisher,
     CustomOsReleaseDate,
     CustomOsShortBlurb,
+    GroupName,
 }
 
 /// Where the new VM's system disk comes from
@@ -388,6 +457,8 @@ pub struct CreateWizardState {
     pub floppy_path: Option<PathBuf>,
     pub qemu_config: WizardQemuConfig,
     pub auto_launch: bool,
+    /// Which group the new VM should join; `Default` uses its OS category.
+    pub group_choice: GroupChoice,
     pub field_focus: usize,
     // Reserved for planned scroll/category-aware OS picker UI; not read yet.
     #[allow(dead_code)]
@@ -423,6 +494,7 @@ impl Default for CreateWizardState {
             floppy_path: None,
             qemu_config: WizardQemuConfig::default(),
             auto_launch: true,
+            group_choice: GroupChoice::default(),
             field_focus: 0,
             os_list_scroll: 0,
             os_filter: String::new(),
@@ -692,9 +764,13 @@ pub struct ImportWizardState {
     pub vm_name: String,
     pub folder_name: String,
     pub disk_action: ImportDiskAction,
+    /// Which group the imported VM should join; `Default` uses its OS category.
+    pub group_choice: GroupChoice,
     pub field_focus: usize,
     pub error_message: Option<String>,
     pub editing_name: bool,
+    pub editing_group_name: bool,
+    pub group_name_buffer: String,
     pub warnings_acknowledged: bool,
 }
 
@@ -709,9 +785,12 @@ impl Default for ImportWizardState {
             vm_name: String::new(),
             folder_name: String::new(),
             disk_action: ImportDiskAction::Symlink,
+            group_choice: GroupChoice::default(),
             field_focus: 0,
             error_message: None,
             editing_name: false,
+            editing_group_name: false,
+            group_name_buffer: String::new(),
             warnings_acknowledged: false,
         }
     }
@@ -720,6 +799,75 @@ impl Default for ImportWizardState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn groups() -> Vec<String> {
+        vec!["Linux".to_string(), "Windows".to_string()]
+    }
+
+    #[test]
+    fn group_choice_label_and_target_name() {
+        assert_eq!(GroupChoice::Default.label(), "Default (OS category)");
+        assert_eq!(GroupChoice::Default.target_name(), None);
+        assert_eq!(GroupChoice::Existing("Linux".to_string()).label(), "Linux");
+        assert_eq!(
+            GroupChoice::Existing("Linux".to_string()).target_name(),
+            Some("Linux")
+        );
+        assert_eq!(GroupChoice::New("Staging".to_string()).label(), "Staging");
+        assert_eq!(
+            GroupChoice::New("Staging".to_string()).target_name(),
+            Some("Staging")
+        );
+    }
+
+    #[test]
+    fn group_choice_next_cycles_through_existing_groups_then_wraps() {
+        let g = groups();
+        assert_eq!(
+            GroupChoice::Default.next(&g),
+            GroupChoice::Existing("Linux".to_string())
+        );
+        assert_eq!(
+            GroupChoice::Existing("Linux".to_string()).next(&g),
+            GroupChoice::Existing("Windows".to_string())
+        );
+        assert_eq!(
+            GroupChoice::Existing("Windows".to_string()).next(&g),
+            GroupChoice::Default
+        );
+    }
+
+    #[test]
+    fn group_choice_prev_cycles_backward_then_wraps() {
+        let g = groups();
+        assert_eq!(
+            GroupChoice::Default.prev(&g),
+            GroupChoice::Existing("Windows".to_string())
+        );
+        assert_eq!(
+            GroupChoice::Existing("Windows".to_string()).prev(&g),
+            GroupChoice::Existing("Linux".to_string())
+        );
+        assert_eq!(
+            GroupChoice::Existing("Linux".to_string()).prev(&g),
+            GroupChoice::Default
+        );
+    }
+
+    #[test]
+    fn group_choice_next_and_prev_with_no_groups_stay_default() {
+        assert_eq!(GroupChoice::Default.next(&[]), GroupChoice::Default);
+        assert_eq!(GroupChoice::Default.prev(&[]), GroupChoice::Default);
+    }
+
+    #[test]
+    fn group_choice_new_cycles_from_the_start_like_default() {
+        let g = groups();
+        assert_eq!(
+            GroupChoice::New("Custom".to_string()).next(&g),
+            GroupChoice::Existing("Linux".to_string())
+        );
+    }
 
     #[test]
     fn disk_image_format_strings_match_qemu_and_filenames() {

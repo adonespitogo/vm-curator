@@ -933,6 +933,30 @@ impl App {
         }
     }
 
+    /// Move a VM into exactly one group (removing it from any others),
+    /// creating that group if it doesn't exist. Used by the create/import
+    /// wizards when the user explicitly picks a group instead of accepting
+    /// the OS-category default (which `refresh_vms` already applies).
+    pub fn set_vm_group(&mut self, vm_id: &str, group_name: &str) {
+        for group in &mut self.groups {
+            group.vm_ids.retain(|id| id != vm_id);
+        }
+        match self.groups.iter_mut().find(|g| g.name == group_name) {
+            Some(group) => group.vm_ids.push(vm_id.to_string()),
+            None => self.groups.push(crate::groups::VmGroup {
+                name: group_name.to_string(),
+                vm_ids: vec![vm_id.to_string()],
+            }),
+        }
+        self.persist_groups();
+    }
+
+    /// Names of all current groups, in display order — for the create/import
+    /// wizards' group-choice cycling.
+    pub fn group_names(&self) -> Vec<String> {
+        self.groups.iter().map(|g| g.name.clone()).collect()
+    }
+
     /// Enumerate physical disks and open the picker screen
     pub fn open_physical_disk_picker(&mut self, context: DiskPickerContext) {
         self.disk_picker_context = context;

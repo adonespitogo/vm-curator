@@ -4,31 +4,48 @@ A fast and friendly Rust TUI for managing desktop QEMU/KVM virtual machines — 
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
+![Main menu](docs/screenshots/main-menu.png)
+
 ### Features
 
-**VM Discovery & Organization**
+**VM Discovery & Organization** — Automatically scans your VM library and organizes VMs by OS family, with search, filtering, and live status.
+<details>
+<summary>Details</summary>
+
 - Automatically scans your VM library for directories containing `launch.sh` scripts
 - Hierarchical organization by 16 OS families with emoji icons and 50 subcategories (used automatically until you define your own VM Groups, see below)
 - Parses QEMU launch scripts to extract configuration (emulator, memory, CPU, VGA, audio, network, disks)
 - Smart categorization with configurable hierarchy patterns
 - Live process monitoring — shows running VMs with status indicators
 - Search and filter VMs by name
+</details>
 
-**VM Info Panel**
+**VM Info Panel** — Live overview of a selected VM's actual QEMU configuration, without digging through `launch.sh`.
+<details>
+<summary>Details</summary>
+
 - The main menu's info panel shows a live overview of the selected VM's actual QEMU configuration — no more digging through `launch.sh` to check what a VM is set up with
 - Hardware: architecture, CPU cores/model, memory, machine type, and KVM/UEFI/TPM/3D-acceleration feature flags
 - Disks: full path, format, interface, and role (system/firmware/media), plus used/capacity size read live via `qemu-img info` (cached per disk so browsing the VM list stays instant)
 - Network topology: every NIC's backend (user/SLIRP, passt, bridge), bridge name, MAC address, and forwarded ports
 - ASCII art and your free-form VM notes are still shown alongside it
+</details>
 
-**VM Groups**
+**VM Groups** — Organize VMs into freeform, reorderable groups instead of (or alongside) the automatic OS-family hierarchy.
+<details>
+<summary>Details</summary>
+
 - Organize VMs into freeform groups instead of (or alongside) the automatic OS-family hierarchy — press `g` on the main menu
 - Create, rename, delete, and reorder groups (`Shift+J`/`Shift+K`), and manage which VMs belong to each
 - New VMs default into a group matching their OS category, or pick a group explicitly (or type a new one) from the Create/Import wizards' review step
 - Once any group is defined, the main menu's VM list follows your group order (with a trailing "Ungrouped" section); clearing all groups falls back to the automatic hierarchy
 - Persisted to `~/.config/vm-curator/groups.toml`, auto-pruned of stale VM ids as VMs are deleted or the library is rescanned
+</details>
 
-**VM Creation Wizard**
+**VM Creation Wizard** — 5-step guided wizard with 130+ pre-configured OS profiles and optimal QEMU settings.
+<details>
+<summary>Details</summary>
+
 - 5-step guided wizard for creating new VMs
 - 130+ pre-configured OS profiles with optimal QEMU settings (Windows, macOS, Linux, BSD, Unix, retro, and more)
 - Automatic UEFI firmware detection across Linux distributions (Arch, Debian, Fedora, NixOS, etc.)
@@ -37,37 +54,61 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 - Use existing disk images (copy or move) instead of creating new ones
 - Pass a whole physical disk (NVMe/SATA/USB) through as the boot device instead of using a disk image
 - Support for custom OS entries with user metadata
+</details>
 
-**VM Import Wizard**
+**VM Import Wizard** — Import existing VMs from libvirt (virsh) XML or Quickemu `.conf` files with a 5-step guided flow.
+<details>
+<summary>Details</summary>
+
 - Import existing VMs from libvirt (virsh) XML configurations and Quickemu `.conf` files
 - 5-step guided import: select source, choose VM, review compatibility warnings, configure disk handling, review and import
 - Automatic OS profile detection from imported configurations
 - Disk handling options: symlink, copy, or move existing disk images
+</details>
 
-**GPU Passthrough**
+**GPU Passthrough** — Single- or multi-GPU passthrough with Looking Glass, PCI device selection, and a VFIO/IOMMU setup wizard.
+<details>
+<summary>Details</summary>
+
 - **Single-GPU passthrough**: Pass your only GPU to a VM (requires TTY, stops display manager)
 - **Guest driver compatibility**: Per-VM vBIOS ROM (`romfile=`) and Hide-KVM (`kvm=off`) options for AMD/NVIDIA Windows driver quirks
 - **Multi-GPU passthrough**: Pass a secondary GPU while keeping the primary for the host
 - **Looking Glass integration**: Near-zero latency display for multi-GPU setups with auto-launch support
 - **PCI passthrough screen**: Select PCI devices (GPUs, USB controllers, NVMe) for VM passthrough
 - **System setup wizard**: One-click VFIO/IOMMU configuration with initramfs regeneration
+</details>
 
-**3D Graphics Acceleration**
+**3D Graphics Acceleration** — Para-virtualized 3D acceleration via `virtio-vga-gl`, tested on NVIDIA RTX-4090.
+<details>
+<summary>Details</summary>
+
 - Para-virtualized 3D acceleration with `virtio-vga-gl` and SDL `gl=on`
 - Tested on NVIDIA RTX-4090 with driver 590.48.01+
 - Automatic SDL display selection for 3D-enabled VMs
+</details>
 
-**Snapshot Management**
+**Snapshot Management** — Create, restore, and delete qcow2 snapshots with a visual list and background operations.
+<details>
+<summary>Details</summary>
+
 - Create, restore, and delete snapshots for qcow2 disk images
 - Visual snapshot list with timestamps and sizes
 - Background operations with progress feedback
+</details>
 
-**Physical Disk Passthrough**
+**Physical Disk Passthrough** — Pass whole physical disks (NVMe, SATA/HDD, USB) through to guests as raw virtio-blk devices.
+<details>
+<summary>Details</summary>
+
 - Pass whole physical disks (NVMe, SATA/HDD, USB) through to guests as raw virtio-blk devices — at creation time (wizard "Physical Disk" mode) or on existing VMs (the "Passthrough Disks" management screen)
 - Safety-filtered disk picker: the host system disk, mounted disks, swap members, and LVM/LUKS/RAID members are excluded with the reason shown; selection requires an explicit typed confirmation
 - Stable `/dev/disk/by-id` device paths, per-disk firmware boot index, and launch-time preflight checks (device present, read/write access with fix hints, refuses mounted partitions)
+</details>
 
-**Network Configuration**
+**Network Configuration** — Multi-NIC VMs, per-adapter backend selection, bridge networking, and a built-in virtual network manager.
+<details>
+<summary>Details</summary>
+
 - **Multiple network adapters per VM**: add or remove NICs from a per-VM list (`[a]` add, `[d]` delete) in both the creation wizard and the Network Settings screen, each with its own model, backend, and settings
 - Network backend selection per adapter: user/SLIRP (NAT), passt, bridge, or none
 - Port forwarding with presets for common services (SSH, RDP, HTTP, HTTPS, VNC)
@@ -75,13 +116,21 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 - Configurable network adapter model and MAC address per NIC
 - Network Settings has explicit Save/Discard with an unsaved-changes confirmation, at both the per-NIC and whole-screen level
 - **Virtual Network Manager** (`n` on the main menu): create, edit, start/stop, and delete managed NAT or Isolated (host-only) networks with configurable subnets and built-in DHCP — ideal for multi-VM lab topologies. Host changes run via inspectable generated `net-up.sh`/`net-down.sh` scripts with explicit sudo
+</details>
 
-**Shared Folders**
+**Shared Folders** — Share host directories with VMs using virtio-9p, managed from the management menu.
+<details>
+<summary>Details</summary>
+
 - Share host directories with VMs using virtio-9p
 - Add, remove, and edit shared folders from the management menu
 - Automatic mount tag generation
+</details>
 
-**Clipboard Sharing (SPICE)**
+**Clipboard Sharing (SPICE)** — Bidirectional host ⇄ guest copy/paste when using the `spice-app` display backend.
+<details>
+<summary>Details</summary>
+
 - Bidirectional host ⇄ guest copy/paste when the display backend is `spice-app`
 - The SPICE guest-agent channel is added to `launch.sh` automatically — no extra configuration
 - Requires `virt-viewer`/`remote-viewer` on the host and `spice-vdagent` running in the guest:
@@ -89,26 +138,42 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
   - Fedora/RHEL: `sudo dnf install spice-vdagent`
   - Arch: `sudo pacman -S spice-vdagent`
   - Then enable the service (`sudo systemctl enable --now spice-vdagentd`) and reboot the guest
+</details>
 
-**USB Passthrough**
+**USB Passthrough** — Pass through up to 16 USB devices via an emulated xHCI controller, with persistent configuration.
+<details>
+<summary>Details</summary>
+
 - USB device enumeration via libudev with sysfs fallback
 - xHCI USB 3.0 controller with 8 ports (supports up to 8 USB 2.0 + 8 USB 3.0 devices)
 - Persistent passthrough configuration
 - Optional per-device firmware boot index (`b`) — passed-through USB drives can be the boot device
 - Hub filtering and keyboard/mouse detection for passthrough validation
+</details>
 
-**VM Notes**
+**VM Notes** — Free-form personal notes per VM, shown in the main info panel and preserved across renames.
+<details>
+<summary>Details</summary>
+
 - Free-form personal notes for any VM from the management menu
 - Multi-line text editor with full keyboard navigation
 - Notes displayed in the main info panel and preserved across VM renames
+</details>
 
-**Launch Script Editor**
+**Launch Script Editor** — Edit `launch.sh` directly in the TUI, with automatic re-parsing after saves.
+<details>
+<summary>Details</summary>
+
 - Edit `launch.sh` scripts directly in the TUI
 - Syntax-aware display with line numbers and horizontal scrolling
 - Automatic QEMU configuration re-parsing after saves
 - Automatic single-GPU passthrough script regeneration when applicable
+</details>
 
-**Additional Features**
+**Additional Features** — Vim-style navigation, multiple boot modes, headless VM support, and other quality-of-life touches.
+<details>
+<summary>Details</summary>
+
 - Vim-style navigation (j/k, arrows, mouse) with full clickable interface
 - Multiple boot modes (normal, install, custom ISO, recovery image, floppy)
 - Dynamic display backend detection per emulator (GTK, SDL, SPICE-app, VNC)
@@ -120,20 +185,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 - BTRFS copy-on-write auto-disable for VM directories
 - First-time setup wizard for configuring the VM library directory
 - Configurable settings with persistence
-
-### Screenshots
-
-**Main menu** — VM Groups on the left, live QEMU configuration overview on the right
-
-![Main menu](docs/screenshots/main-menu.png)
-
-**VM Groups** — organize VMs into freeform groups instead of the automatic OS-family hierarchy
-
-![VM Groups](docs/screenshots/vm-groups.png)
-
-**Virtual Network Manager** — create and manage NAT or Isolated host-only networks with built-in DHCP
-
-![Virtual Network Manager](docs/screenshots/virtual-networks.png)
+</details>
 
 ### Installation
 

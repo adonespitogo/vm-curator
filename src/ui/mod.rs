@@ -94,9 +94,9 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Result<()> {
 /// Handle mouse click in the main menu
 fn handle_main_menu_click(app: &mut App, click_x: u16, click_y: u16) -> Result<()> {
     if let Ok((term_width, term_height)) = crossterm::terminal::size() {
-        // Main layout: title (3), content (rest), help (3)
+        // Main layout: title (3), content (rest), help (wraps to fit — see main_menu::help_bar_height)
         let title_height = 3u16;
-        let help_height = 3u16;
+        let help_height = screens::main_menu::help_bar_height(app, term_width);
         let content_y = title_height;
         let content_height = term_height.saturating_sub(title_height + help_height);
 
@@ -124,6 +124,7 @@ fn handle_main_menu_click(app: &mut App, click_x: u16, click_y: u16) -> Result<(
                 &app.filtered_indices,
                 &app.hierarchy,
                 &app.metadata,
+                &app.groups,
                 &app.visual_order,
                 clicked_row,
             ) {
@@ -219,6 +220,10 @@ fn execute_confirm_action(app: &mut App, action: ConfirmAction) -> Result<()> {
         ConfirmAction::DeleteNetwork => {
             app.pop_screen();
             screens::network_manager::delete_selected(app);
+        }
+        ConfirmAction::DeleteGroup => {
+            app.pop_screen();
+            app.delete_selected_group();
         }
         ConfirmAction::LaunchVm => {
             // Pop the confirm dialog first
@@ -533,6 +538,16 @@ fn render(app: &App, frame: &mut Frame) {
             render_dim_overlay(frame);
             screens::network_manager::render(app, frame);
         }
+        Screen::Groups => {
+            screens::main_menu::render(app, frame);
+            render_dim_overlay(frame);
+            screens::groups::render(app, frame);
+        }
+        Screen::GroupMembers => {
+            screens::main_menu::render(app, frame);
+            render_dim_overlay(frame);
+            screens::group_members::render(app, frame);
+        }
     }
 }
 
@@ -557,6 +572,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
                 | Screen::NetworkSettings
                 | Screen::NetworkManager
                 | Screen::ImportWizard
+                | Screen::GroupMembers
         )
         && !(matches!(app.screen, Screen::Settings) && app.settings_editing)
     {
@@ -590,6 +606,8 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
         Screen::PhysicalDiskPicker => screens::physical_disk_picker::handle_key(app, key)?,
         Screen::DiskPassthrough => screens::disk_passthrough::handle_key(app, key)?,
         Screen::NetworkManager => screens::network_manager::handle_key(app, key)?,
+        Screen::Groups => screens::groups::handle_key(app, key)?,
+        Screen::GroupMembers => screens::group_members::handle_key(app, key)?,
         Screen::CreateWizardCustomOs => screens::create_wizard::handle_custom_os_key(app, key)?,
         Screen::CreateWizardDownload => screens::create_wizard::handle_download_key(app, key)?,
         Screen::NetworkSettings => screens::network_settings::handle_key(app, key)?,
@@ -643,6 +661,9 @@ fn handle_main_menu(app: &mut App, key: KeyEvent) -> Result<()> {
         }
         KeyCode::Char('n') | KeyCode::Char('N') => {
             app.open_network_manager();
+        }
+        KeyCode::Char('g') | KeyCode::Char('G') => {
+            app.open_groups();
         }
         KeyCode::Char('x') | KeyCode::Char('X') => {
             if let Some(vm) = app.selected_vm().cloned() {
@@ -2012,6 +2033,16 @@ fn render_confirm(app: &App, action: &ConfirmAction, frame: &mut Frame) {
                 ),
             )
         }
+        ConfirmAction::DeleteGroup => {
+            let name = app
+                .selected_group()
+                .map(|g| g.name.clone())
+                .unwrap_or_else(|| "group".to_string());
+            (
+                "Delete Group",
+                format!("Delete group '{}'? VMs in it are untouched.", name),
+            )
+        }
         ConfirmAction::UsePhysicalDisk => {
             let message = screens::physical_disk_picker::confirm_message(app);
             let mut dialog =
@@ -2519,6 +2550,8 @@ fn render_text_input(app: &App, context: &TextInputContext, frame: &mut Frame) {
     let title = match context {
         TextInputContext::SnapshotName => " Enter Snapshot Name ",
         TextInputContext::RenameVm => " Enter New VM Name ",
+        TextInputContext::CreateGroup => " Enter Group Name ",
+        TextInputContext::RenameGroup => " Enter New Group Name ",
     };
 
     let area = frame.area();
@@ -2593,6 +2626,16 @@ fn handle_text_input(app: &mut App, context: TextInputContext, key: KeyEvent) ->
                         }
                     }
                 }
+                TextInputContext::CreateGroup => {
+                    if !input.is_empty() {
+                        app.create_group(&input);
+                    }
+                }
+                TextInputContext::RenameGroup => {
+                    if !input.is_empty() {
+                        app.rename_selected_group(&input);
+                    }
+                }
             }
         }
         KeyCode::Backspace => {
@@ -2605,8 +2648,10 @@ fn handle_text_input(app: &mut App, context: TextInputContext, key: KeyEvent) ->
                     // Only safe characters for snapshot names
                     c.is_alphanumeric() || c == '-' || c == '_' || c == '.'
                 }
-                TextInputContext::RenameVm => {
-                    // Allow more characters for VM display names
+                TextInputContext::RenameVm
+                | TextInputContext::CreateGroup
+                | TextInputContext::RenameGroup => {
+                    // Allow more characters for VM/group display names
                     c.is_alphanumeric()
                         || c == '-'
                         || c == '_'

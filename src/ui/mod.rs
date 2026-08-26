@@ -570,6 +570,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
                 | Screen::CreateWizard
                 | Screen::CreateWizardCustomOs
                 | Screen::NetworkSettings
+                | Screen::NetworkManager
                 | Screen::ImportWizard
                 | Screen::GroupMembers
         )
@@ -809,38 +810,21 @@ fn handle_management(app: &mut App, key: KeyEvent) -> Result<()> {
                             app.reload_vnet_networks();
                             // Initialize network settings state from current VM config
                             if let Some(vm) = app.selected_vm() {
-                                let net = vm.config.network.as_ref();
-                                let model = net
-                                    .map(|n| n.model.clone())
-                                    .unwrap_or_else(|| "e1000".to_string());
-                                let (backend, bridge_name) = net
-                                    .map(|n| match &n.backend {
-                                        crate::vm::qemu_config::NetworkBackend::User => {
-                                            ("user".to_string(), None)
-                                        }
-                                        crate::vm::qemu_config::NetworkBackend::Passt => {
-                                            ("passt".to_string(), None)
-                                        }
-                                        crate::vm::qemu_config::NetworkBackend::Bridge(name) => {
-                                            ("bridge".to_string(), Some(name.clone()))
-                                        }
-                                        crate::vm::qemu_config::NetworkBackend::None => {
-                                            ("none".to_string(), None)
-                                        }
-                                    })
-                                    .unwrap_or_else(|| ("user".to_string(), None));
-                                let port_forwards =
-                                    net.map(|n| n.port_forwards.clone()).unwrap_or_default();
-                                let mac_address = net.and_then(|n| n.mac_address.clone());
+                                let mut nics: Vec<crate::wizard_types::NicConfig> =
+                                    vm.config.networks.iter().map(Into::into).collect();
+                                if nics.is_empty() {
+                                    nics.push(crate::wizard_types::NicConfig::default());
+                                }
 
                                 app.network_settings_state =
                                     Some(crate::app::NetworkSettingsState {
-                                        model,
-                                        backend,
-                                        bridge_name,
-                                        port_forwards,
-                                        mac_address: mac_address.clone(),
-                                        mac_edit_buffer: mac_address.unwrap_or_default(),
+                                        nics_baseline: nics.clone(),
+                                        nics,
+                                        active_nic: 0,
+                                        list_cursor: 0,
+                                        editing_nic: false,
+                                        nic_snapshot: None,
+                                        mac_edit_buffer: String::new(),
                                         editing_mac: false,
                                         selected_field: 0,
                                         editing_port_forwards: false,
@@ -1785,6 +1769,60 @@ fn handle_usb_devices(app: &mut App, key: KeyEvent) -> Result<()> {
 }
 
 fn handle_confirm(app: &mut App, action: ConfirmAction, key: KeyEvent) -> Result<()> {
+    // Network Settings unsaved-changes confirmations. NicEdit backs out of
+    // just the per-NIC field editor (to the NIC list); NicList backs out
+    // of the whole screen. Neither fits the generic pop-based dispatch
+    // below — the editor is a nested view within Screen::NetworkSettings,
+    // not its own screen-stack entry.
+    if let ConfirmAction::UnsavedChanges(kind @ (UnsavedKind::NicEdit | UnsavedKind::NicList)) =
+        action
+    {
+        match key.code {
+            KeyCode::Char('s') | KeyCode::Char('S') | KeyCode::Enter => {
+                app.pop_screen(); // close the confirm dialog
+                match kind {
+                    UnsavedKind::NicEdit => screens::network_settings::save_nic_edit(app)?,
+                    UnsavedKind::NicList => screens::network_settings::save_nic_list(app)?,
+                    _ => unreachable!(),
+                }
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') => {
+                app.pop_screen(); // close the confirm dialog
+                match kind {
+                    UnsavedKind::NicEdit => screens::network_settings::discard_nic_edit(app),
+                    UnsavedKind::NicList => screens::network_settings::discard_nic_list(app),
+                    _ => unreachable!(),
+                }
+            }
+            KeyCode::Esc | KeyCode::Char('c') | KeyCode::Char('C') => {
+                app.pop_screen(); // cancel: close dialog, stay where we were
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
+
+    // Virtual Network Manager's create/edit form. Like Network Settings'
+    // per-NIC editor, this never pops the screen stack — the form is a
+    // nested view within Screen::NetworkManager, not its own screen.
+    if let ConfirmAction::UnsavedChanges(UnsavedKind::NetworkEdit) = action {
+        match key.code {
+            KeyCode::Char('s') | KeyCode::Char('S') | KeyCode::Enter => {
+                app.pop_screen(); // close the confirm dialog
+                screens::network_manager::save_editor(app);
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') => {
+                app.pop_screen(); // close the confirm dialog
+                screens::network_manager::discard_editor(app);
+            }
+            KeyCode::Esc | KeyCode::Char('c') | KeyCode::Char('C') => {
+                app.pop_screen(); // cancel: close dialog, stay in the form
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
+
     // Three-way unsaved-changes prompt: Save / Discard / Cancel.
     if let ConfirmAction::UnsavedChanges(kind) = action {
         match key.code {
@@ -1825,12 +1863,18 @@ fn handle_confirm(app: &mut App, action: ConfirmAction, key: KeyEvent) -> Result
 }
 
 /// Save the pending selection for `kind`, then leave the management screen.
+/// `NicEdit`/`NicList`/`NetworkEdit` are routed to their own handlers in
+/// `handle_confirm` before this is ever reached — they never pop a screen,
+/// so they don't belong here.
 fn confirm_save_and_exit(app: &mut App, kind: UnsavedKind) {
     match kind {
         UnsavedKind::Usb => save_usb_passthrough_config(app),
         UnsavedKind::Pci => screens::pci_passthrough::save_selection_and_report(app),
         UnsavedKind::SharedFolders => screens::shared_folders::save_selection_and_report(app),
         UnsavedKind::DiskPassthrough => screens::disk_passthrough::save_selection_and_report(app),
+        UnsavedKind::NicEdit | UnsavedKind::NicList | UnsavedKind::NetworkEdit => {
+            unreachable!("NicEdit/NicList/NetworkEdit are handled before this dispatch")
+        }
     }
 
     let save_failed = match kind {
@@ -1838,6 +1882,9 @@ fn confirm_save_and_exit(app: &mut App, kind: UnsavedKind) {
         UnsavedKind::Pci => app.pci_selection_dirty(),
         UnsavedKind::SharedFolders => app.shared_folders_dirty(),
         UnsavedKind::DiskPassthrough => app.disk_passthrough_dirty(),
+        UnsavedKind::NicEdit | UnsavedKind::NicList | UnsavedKind::NetworkEdit => {
+            unreachable!("NicEdit/NicList/NetworkEdit are handled before this dispatch")
+        }
     };
 
     app.pop_screen(); // close the confirm dialog
@@ -1847,12 +1894,16 @@ fn confirm_save_and_exit(app: &mut App, kind: UnsavedKind) {
 }
 
 /// Pop a management screen, restoring the parent menu cursor the same way each
-/// screen's own Esc handler does.
+/// screen's own Esc handler does. `NicEdit`/`NicList`/`NetworkEdit` never
+/// reach here (see above).
 fn exit_management_screen(app: &mut App, kind: UnsavedKind) {
     match kind {
         UnsavedKind::Usb => app.selected_menu_item = 2,
         UnsavedKind::Pci => app.selected_menu_item = 0,
         UnsavedKind::SharedFolders | UnsavedKind::DiskPassthrough => {}
+        UnsavedKind::NicEdit | UnsavedKind::NicList | UnsavedKind::NetworkEdit => {
+            unreachable!("NicEdit/NicList/NetworkEdit are handled before this dispatch")
+        }
     }
     app.pop_screen();
 }
@@ -2009,6 +2060,8 @@ fn render_confirm(app: &App, action: &ConfirmAction, frame: &mut Frame) {
                 UnsavedKind::Pci => "PCI passthrough",
                 UnsavedKind::SharedFolders => "shared folder",
                 UnsavedKind::DiskPassthrough => "passthrough disk",
+                UnsavedKind::NicEdit | UnsavedKind::NicList => "network adapter",
+                UnsavedKind::NetworkEdit => "network",
             };
             let message = format!("You have unsaved {} changes.", what);
             let mut dialog = ConfirmDialog::new("Unsaved Changes", &message);

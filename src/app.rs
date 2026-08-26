@@ -140,6 +140,11 @@ pub enum UnsavedKind {
     Pci,
     SharedFolders,
     DiskPassthrough,
+    /// Leaving the Virtual Network Manager's create/edit form with unsaved
+    /// edits. Like the per-NIC editor in Network Settings, this never pops
+    /// the screen stack — the form is a nested view within
+    /// `Screen::NetworkManager`, not its own screen.
+    NetworkEdit,
 }
 
 /// Input mode for text entry

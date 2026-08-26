@@ -47,10 +47,13 @@ pub fn render(app: &App, frame: &mut Frame) {
     let ascii_art = app.selected_vm_ascii();
 
     let notes = app.selected_vm().and_then(|vm| vm.notes.as_deref());
+    let config = app.selected_vm().map(|vm| &vm.config);
 
     AsciiInfoWidget {
         ascii_art,
         os_info: os_info.as_ref(),
+        config,
+        disk_info: &app.disk_info_cache,
         vm_name: &vm_name,
         scroll: app.info_scroll,
         notes,

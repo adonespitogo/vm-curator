@@ -225,7 +225,6 @@ pub fn delete_snapshot(disk_path: &Path, name: &str) -> Result<()> {
 }
 
 /// Get information about a disk image using JSON output
-#[allow(dead_code)]
 pub fn get_disk_info(disk_path: &Path) -> Result<DiskInfo> {
     let disk_str = path_to_str(disk_path)?;
     let output = Command::new("qemu-img")
@@ -254,14 +253,16 @@ pub fn get_disk_info(disk_path: &Path) -> Result<DiskInfo> {
     })
 }
 
-/// Disk image information - reserved for future disk info display
+/// Disk image information
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct DiskInfo {
+    #[allow(dead_code)]
     pub format: String,
     pub virtual_size: String,
     pub disk_size: String,
+    #[allow(dead_code)]
     pub cluster_size: Option<String>,
+    #[allow(dead_code)]
     pub backing_file: Option<String>,
 }
 

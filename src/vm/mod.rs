@@ -19,7 +19,10 @@ pub use lifecycle::{
 };
 pub use qemu_config::{BootMode, QemuConfig};
 pub use single_gpu_scripts::generate_single_gpu_scripts;
-pub use snapshot::{create_snapshot, delete_snapshot, list_snapshots, restore_snapshot, Snapshot};
+pub use snapshot::{
+    create_snapshot, delete_snapshot, get_disk_info, list_snapshots, restore_snapshot, DiskInfo,
+    Snapshot,
+};
 
 // Library-only exports — used by external GUI consumers, not the binary.
 #[allow(unused_imports)]

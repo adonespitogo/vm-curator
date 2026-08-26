@@ -96,31 +96,21 @@ fn render_title(app: &App, area: Rect, frame: &mut Frame) {
     frame.render_widget(title, area);
 }
 
-/// Static (key, label) pairs for the help bar's normal grid of hints, in
-/// display order (filled column-major: down each column, then to the next).
-const HELP_ITEMS: &[(&str, &str)] = &[
-    ("Enter", "Launch"),
-    ("x", "Stop"),
-    ("m", "Manage"),
-    ("c", "Create"),
-    ("i", "Import"),
-    ("s", "Settings"),
-    ("n", "Networks"),
-    ("g", "Groups"),
-    ("/", "Search"),
-    ("?", "Help"),
-    ("q", "Quit"),
-];
+/// One hint in the help bar's grid: its key, label, and whether it's
+/// currently actionable given the selected VM's state.
+struct HelpItem {
+    key: &'static str,
+    label: &'static str,
+    enabled: bool,
+}
 
 /// Widest most columns the help grid will use, even on very wide terminals.
 const MAX_HELP_COLUMNS: usize = 3;
 
 /// The help bar's content: either the normal hint grid, or a single
-/// status/stopping-VM message that overrides it. Owned (`'static`) so it can
-/// be measured and rendered without borrowing from `app` across the layout
-/// split.
+/// status/stopping-VM message that overrides it.
 enum HelpContent {
-    Grid(&'static [(&'static str, &'static str)]),
+    Grid(Vec<HelpItem>),
     Message(Span<'static>),
 }
 
@@ -132,7 +122,7 @@ pub fn help_bar_height(app: &App, width: u16) -> u16 {
     match build_help_content(app) {
         HelpContent::Message(span) => hints_line_count(&[span], inner_width) + 2,
         HelpContent::Grid(items) => {
-            let (_, rows) = grid_dimensions(items.len(), max_item_text_width(items), inner_width);
+            let (_, rows) = grid_dimensions(items.len(), max_item_text_width(&items), inner_width);
             rows as u16 + 2
         }
     }
@@ -147,10 +137,10 @@ fn hints_line_count(spans: &[Span], width: u16) -> u16 {
 
 /// Width in characters of the widest `"[key] label"` item, used to size grid
 /// columns.
-fn max_item_text_width(items: &[(&str, &str)]) -> u16 {
+fn max_item_text_width(items: &[HelpItem]) -> u16 {
     items
         .iter()
-        .map(|(key, label)| format!("[{key}] {label}").chars().count() as u16)
+        .map(|item| format!("[{}] {}", item.key, item.label).chars().count() as u16)
         .max()
         .unwrap_or(0)
 }
@@ -191,7 +181,65 @@ fn build_help_content(app: &App) -> HelpContent {
         return HelpContent::Message(Span::styled(text, Style::default().fg(Color::Yellow)));
     }
 
-    HelpContent::Grid(HELP_ITEMS)
+    let vm_running = app.selected_vm_pid().is_some();
+
+    HelpContent::Grid(vec![
+        HelpItem {
+            key: "Enter",
+            label: "Launch",
+            enabled: !vm_running,
+        },
+        HelpItem {
+            key: "x",
+            label: "Stop",
+            enabled: vm_running,
+        },
+        HelpItem {
+            key: "m",
+            label: "Manage",
+            enabled: true,
+        },
+        HelpItem {
+            key: "c",
+            label: "Create",
+            enabled: true,
+        },
+        HelpItem {
+            key: "i",
+            label: "Import",
+            enabled: true,
+        },
+        HelpItem {
+            key: "s",
+            label: "Settings",
+            enabled: true,
+        },
+        HelpItem {
+            key: "n",
+            label: "Networks",
+            enabled: true,
+        },
+        HelpItem {
+            key: "g",
+            label: "Groups",
+            enabled: true,
+        },
+        HelpItem {
+            key: "/",
+            label: "Search",
+            enabled: true,
+        },
+        HelpItem {
+            key: "?",
+            label: "Help",
+            enabled: true,
+        },
+        HelpItem {
+            key: "q",
+            label: "Quit",
+            enabled: true,
+        },
+    ])
 }
 
 fn render_help_bar(content: HelpContent, area: Rect, frame: &mut Frame) {
@@ -208,13 +256,14 @@ fn render_help_bar(content: HelpContent, area: Rect, frame: &mut Frame) {
                 .alignment(Alignment::Center);
             frame.render_widget(help, inner);
         }
-        HelpContent::Grid(items) => render_help_grid(items, inner, frame),
+        HelpContent::Grid(items) => render_help_grid(&items, inner, frame),
     }
 }
 
 /// Render hint items in a column-major grid (filled down each column, then
 /// to the next), with the column count chosen to fit `area`'s width.
-fn render_help_grid(items: &[(&str, &str)], area: Rect, frame: &mut Frame) {
+/// Disabled items (e.g. Launch on a running VM) render dimmed.
+fn render_help_grid(items: &[HelpItem], area: Rect, frame: &mut Frame) {
     let (cols, rows) = grid_dimensions(items.len(), max_item_text_width(items), area.width);
 
     // A 1-cell left margin keeps the first column's hints from butting up
@@ -235,10 +284,20 @@ fn render_help_grid(items: &[(&str, &str)], area: Rect, frame: &mut Frame) {
 
         let lines: Vec<Line> = items[start..end]
             .iter()
-            .map(|(key, label)| {
+            .map(|item| {
+                let key_style = if item.enabled {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                let label_style = if item.enabled {
+                    Style::default()
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
                 Line::from(vec![
-                    Span::styled(format!("[{key}]"), Style::default().fg(Color::Yellow)),
-                    Span::raw(format!("{NBSP}{label}")),
+                    Span::styled(format!("[{}]", item.key), key_style),
+                    Span::styled(format!("{NBSP}{}", item.label), label_style),
                 ])
             })
             .collect();

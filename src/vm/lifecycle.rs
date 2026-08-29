@@ -614,18 +614,6 @@ pub fn delete_vm(vm: &DiscoveredVm, permanent: bool) -> Result<()> {
     Ok(())
 }
 
-/// Rename a VM by updating its display name in vm-curator.toml
-pub fn rename_vm(vm: &DiscoveredVm, new_name: &str) -> Result<()> {
-    // Preserve existing os_profile and notes
-    let os_profile = vm.os_profile.as_deref().or(Some(&vm.id));
-    let notes = vm.notes.as_deref();
-
-    crate::vm::create::write_vm_metadata(&vm.path, new_name, os_profile, notes)
-        .context("Failed to write VM metadata")?;
-
-    Ok(())
-}
-
 /// Save (or clear) the notes for a VM, preserving display_name and os_profile.
 #[allow(dead_code)]
 pub fn save_notes(vm: &DiscoveredVm, notes: Option<&str>) -> Result<()> {

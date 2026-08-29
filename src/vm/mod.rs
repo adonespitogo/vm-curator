@@ -33,8 +33,8 @@ pub use import::{
 };
 #[allow(unused_imports)]
 pub use lifecycle::{
-    delete_vm, ensure_qmp_in_script, is_vm_paused, launch_vm_dbus, pause_vm, rename_vm, reset_vm,
-    resume_vm, save_notes, save_pci_passthrough,
+    delete_vm, ensure_qmp_in_script, is_vm_paused, launch_vm_dbus, pause_vm, reset_vm, resume_vm,
+    save_notes, save_pci_passthrough,
 };
 #[allow(unused_imports)]
 pub use qemu_config::{NetworkBackend, NetworkConfig, PortForward, PortProtocol};

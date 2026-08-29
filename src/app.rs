@@ -99,15 +99,22 @@ pub enum Screen {
     Groups,
     /// Manage which VMs belong to the currently selected group
     GroupMembers,
+    /// Edit system settings (memory, CPU, machine type) for an existing VM
+    EditSystem,
+    /// CPU model selection submenu (part of Edit System)
+    CpuModelOptions,
+    /// Machine type selection submenu (part of Edit System)
+    MachineTypeOptions,
 }
 
 /// Context for text input dialogs
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TextInputContext {
     SnapshotName,
-    RenameVm,
     CreateGroup,
     RenameGroup,
+    EditSystemMemory,
+    EditSystemCpuCores,
 }
 
 /// Actions that need confirmation

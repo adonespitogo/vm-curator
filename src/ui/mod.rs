@@ -554,6 +554,21 @@ fn render(app: &App, frame: &mut Frame) {
             render_dim_overlay(frame);
             screens::group_members::render(app, frame);
         }
+        Screen::EditSystem => {
+            screens::main_menu::render(app, frame);
+            render_dim_overlay(frame);
+            screens::management::render_edit_system(app, frame);
+        }
+        Screen::CpuModelOptions => {
+            screens::main_menu::render(app, frame);
+            render_dim_overlay(frame);
+            screens::management::render_cpu_model_options(app, frame);
+        }
+        Screen::MachineTypeOptions => {
+            screens::main_menu::render(app, frame);
+            render_dim_overlay(frame);
+            screens::management::render_machine_type_options(app, frame);
+        }
     }
 }
 
@@ -621,6 +636,9 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
             screens::settings::handle_input(app, key)?;
         }
         Screen::ImportWizard => screens::import_wizard::handle_key(app, key)?,
+        Screen::EditSystem => handle_edit_system(app, key)?,
+        Screen::CpuModelOptions => handle_cpu_model_options(app, key)?,
+        Screen::MachineTypeOptions => handle_machine_type_options(app, key)?,
     }
 
     Ok(())
@@ -881,11 +899,9 @@ fn handle_management(app: &mut App, key: KeyEvent) -> Result<()> {
                             app.load_notes_into_editor();
                             app.push_screen(Screen::EditNotes);
                         }
-                        MenuAction::RenameVm => {
-                            if let Some(vm) = app.selected_vm() {
-                                app.text_input_buffer = vm.display_name();
-                            }
-                            app.push_screen(Screen::TextInput(TextInputContext::RenameVm));
+                        MenuAction::EditSystem => {
+                            app.selected_menu_item = 0;
+                            app.push_screen(Screen::EditSystem);
                         }
                         MenuAction::ResetVm => {
                             app.push_screen(Screen::Confirm(ConfirmAction::ResetVm));
@@ -1510,6 +1526,253 @@ fn handle_display_options(app: &mut App, key: KeyEvent) -> Result<()> {
         }
         _ => {}
     }
+    Ok(())
+}
+
+/// Number of fields shown on the Edit System submenu.
+const EDIT_SYSTEM_FIELD_COUNT: usize = 4;
+
+fn handle_edit_system(app: &mut App, key: KeyEvent) -> Result<()> {
+    match key.code {
+        KeyCode::Esc => {
+            app.selected_menu_item = 0;
+            app.pop_screen();
+        }
+        KeyCode::Char('j') | KeyCode::Down => app.menu_next(EDIT_SYSTEM_FIELD_COUNT),
+        KeyCode::Char('k') | KeyCode::Up => app.menu_prev(),
+        KeyCode::Enter
+        | KeyCode::Char('1')
+        | KeyCode::Char('2')
+        | KeyCode::Char('3')
+        | KeyCode::Char('4') => {
+            let item = match key.code {
+                KeyCode::Char('1') => 0,
+                KeyCode::Char('2') => 1,
+                KeyCode::Char('3') => 2,
+                KeyCode::Char('4') => 3,
+                _ => app.selected_menu_item,
+            };
+
+            match item {
+                0 => {
+                    app.text_input_buffer = app
+                        .selected_vm()
+                        .map(|vm| vm.config.memory_mb.to_string())
+                        .unwrap_or_default();
+                    app.push_screen(Screen::TextInput(TextInputContext::EditSystemMemory));
+                }
+                1 => {
+                    app.text_input_buffer = app
+                        .selected_vm()
+                        .map(|vm| vm.config.cpu_cores.to_string())
+                        .unwrap_or_default();
+                    app.push_screen(Screen::TextInput(TextInputContext::EditSystemCpuCores));
+                }
+                2 => {
+                    app.selected_menu_item = 0;
+                    app.push_screen(Screen::CpuModelOptions);
+                }
+                3 => {
+                    app.selected_menu_item = 0;
+                    app.push_screen(Screen::MachineTypeOptions);
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn handle_cpu_model_options(app: &mut App, key: KeyEvent) -> Result<()> {
+    let options = screens::management::get_cpu_model_options(app);
+    let option_count = options.len();
+
+    match key.code {
+        KeyCode::Esc => {
+            app.selected_menu_item = 2; // Reset to CPU Model position in Edit System menu
+            app.pop_screen();
+        }
+        KeyCode::Char('j') | KeyCode::Down => app.menu_next(option_count),
+        KeyCode::Char('k') | KeyCode::Up => app.menu_prev(),
+        KeyCode::Enter
+        | KeyCode::Char('1')
+        | KeyCode::Char('2')
+        | KeyCode::Char('3')
+        | KeyCode::Char('4')
+        | KeyCode::Char('5')
+        | KeyCode::Char('6')
+        | KeyCode::Char('7')
+        | KeyCode::Char('8')
+        | KeyCode::Char('9') => {
+            let item = match key.code {
+                KeyCode::Char('1') => 0,
+                KeyCode::Char('2') => 1,
+                KeyCode::Char('3') => 2,
+                KeyCode::Char('4') => 3,
+                KeyCode::Char('5') => 4,
+                KeyCode::Char('6') => 5,
+                KeyCode::Char('7') => 6,
+                KeyCode::Char('8') => 7,
+                KeyCode::Char('9') => 8,
+                _ => app.selected_menu_item,
+            };
+
+            if let Some((model, _)) = options.get(item) {
+                let model = model.clone();
+                let script_path = app.selected_vm().map(|vm| vm.launch_script.clone());
+                if let Some(script_path) = script_path {
+                    match update_vm_cpu_model(&script_path, &model) {
+                        Ok(()) => {
+                            app.set_status(format!("CPU model set to {}", model));
+                            let _ = app.refresh_vms();
+                        }
+                        Err(e) => app.set_status(format!("Failed to update CPU model: {}", e)),
+                    }
+                }
+            }
+            app.selected_menu_item = 2;
+            app.pop_screen();
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn handle_machine_type_options(app: &mut App, key: KeyEvent) -> Result<()> {
+    let options = screens::management::get_machine_type_options(app);
+    let option_count = options.len();
+
+    match key.code {
+        KeyCode::Esc => {
+            app.selected_menu_item = 3; // Reset to Machine Type position in Edit System menu
+            app.pop_screen();
+        }
+        KeyCode::Char('j') | KeyCode::Down => app.menu_next(option_count),
+        KeyCode::Char('k') | KeyCode::Up => app.menu_prev(),
+        KeyCode::Enter
+        | KeyCode::Char('1')
+        | KeyCode::Char('2')
+        | KeyCode::Char('3')
+        | KeyCode::Char('4')
+        | KeyCode::Char('5')
+        | KeyCode::Char('6')
+        | KeyCode::Char('7')
+        | KeyCode::Char('8')
+        | KeyCode::Char('9') => {
+            let item = match key.code {
+                KeyCode::Char('1') => 0,
+                KeyCode::Char('2') => 1,
+                KeyCode::Char('3') => 2,
+                KeyCode::Char('4') => 3,
+                KeyCode::Char('5') => 4,
+                KeyCode::Char('6') => 5,
+                KeyCode::Char('7') => 6,
+                KeyCode::Char('8') => 7,
+                KeyCode::Char('9') => 8,
+                _ => app.selected_menu_item,
+            };
+
+            if let Some((machine, _)) = options.get(item) {
+                let machine = machine.clone();
+                let script_path = app.selected_vm().map(|vm| vm.launch_script.clone());
+                if let Some(script_path) = script_path {
+                    match update_vm_machine(&script_path, &machine) {
+                        Ok(()) => {
+                            app.set_status(format!("Machine type set to {}", machine));
+                            let _ = app.refresh_vms();
+                        }
+                        Err(e) => app.set_status(format!("Failed to update machine type: {}", e)),
+                    }
+                }
+            }
+            app.selected_menu_item = 3;
+            app.pop_screen();
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Update the `-m` memory value (in MB) in a VM's launch.sh.
+/// Launch scripts commonly have several `case` branches (--install, --cdrom,
+/// --recovery, --floppy, default boot), each with its own copy of the QEMU
+/// invocation - every function below must patch *all* of them (`replace_all`),
+/// not just the first match, or the branch actually used to launch the VM
+/// can be left with the old value.
+fn update_vm_memory(script_path: &std::path::Path, new_mb: u32) -> Result<()> {
+    let content = std::fs::read_to_string(script_path)?;
+    let mem_re = Regex::new(r"-m\s+\d+[GgMm]?")?;
+    if !mem_re.is_match(&content) {
+        anyhow::bail!("No -m flag found in launch.sh");
+    }
+    let new_content = mem_re
+        .replace_all(&content, format!("-m {}M", new_mb))
+        .to_string();
+    std::fs::write(script_path, new_content)?;
+    Ok(())
+}
+
+/// Update the CPU core count in a VM's launch.sh, keeping the `-smp N` count
+/// and any `cores=N` sub-option in sync.
+fn update_vm_cpu_cores(script_path: &std::path::Path, new_cores: u32) -> Result<()> {
+    let content = std::fs::read_to_string(script_path)?;
+    let smp_re = Regex::new(r"(-smp\s+)\d+")?;
+    if !smp_re.is_match(&content) {
+        anyhow::bail!("No -smp flag found in launch.sh");
+    }
+    let content = smp_re
+        .replace_all(&content, |caps: &regex::Captures| {
+            format!("{}{}", &caps[1], new_cores)
+        })
+        .to_string();
+    let cores_re = Regex::new(r"(cores=)\d+")?;
+    let new_content = cores_re
+        .replace_all(&content, |caps: &regex::Captures| {
+            format!("{}{}", &caps[1], new_cores)
+        })
+        .to_string();
+    std::fs::write(script_path, new_content)?;
+    Ok(())
+}
+
+/// Update the `-cpu` model in a VM's launch.sh. Requires an existing `-cpu`
+/// flag; if none is present, use Edit Raw Configuration to add one.
+fn update_vm_cpu_model(script_path: &std::path::Path, new_model: &str) -> Result<()> {
+    let content = std::fs::read_to_string(script_path)?;
+    let cpu_re = Regex::new(r"-cpu\s+[^\s\\]+")?;
+    if !cpu_re.is_match(&content) {
+        anyhow::bail!("No -cpu flag found in launch.sh; add one via Edit Raw Configuration");
+    }
+    let new_content = cpu_re
+        .replace_all(&content, format!("-cpu {}", new_model))
+        .to_string();
+    std::fs::write(script_path, new_content)?;
+    Ok(())
+}
+
+/// Update the machine type in a VM's launch.sh, preserving any trailing
+/// `,option=value` suffixes (e.g. `accel=kvm`, `smm=on`).
+fn update_vm_machine(script_path: &std::path::Path, new_machine: &str) -> Result<()> {
+    let content = std::fs::read_to_string(script_path)?;
+    let machine_re = Regex::new(r"(-machine\s+)([^\s,\\]+)")?;
+    let m_re = Regex::new(r"(-M\s+)([^\s,\\]+)")?;
+
+    let new_content = if machine_re.is_match(&content) {
+        machine_re
+            .replace_all(&content, |caps: &regex::Captures| {
+                format!("{}{}", &caps[1], new_machine)
+            })
+            .to_string()
+    } else if m_re.is_match(&content) {
+        m_re.replace_all(&content, |caps: &regex::Captures| {
+            format!("{}{}", &caps[1], new_machine)
+        })
+        .to_string()
+    } else {
+        anyhow::bail!("No -machine flag found in launch.sh; add one via Edit Raw Configuration");
+    };
+    std::fs::write(script_path, new_content)?;
     Ok(())
 }
 
@@ -2557,9 +2820,10 @@ fn render_text_input(app: &App, context: &TextInputContext, frame: &mut Frame) {
 
     let title = match context {
         TextInputContext::SnapshotName => " Enter Snapshot Name ",
-        TextInputContext::RenameVm => " Enter New VM Name ",
         TextInputContext::CreateGroup => " Enter Group Name ",
         TextInputContext::RenameGroup => " Enter New Group Name ",
+        TextInputContext::EditSystemMemory => " Enter Memory (MB) ",
+        TextInputContext::EditSystemCpuCores => " Enter CPU Cores ",
     };
 
     let area = frame.area();
@@ -2618,22 +2882,6 @@ fn handle_text_input(app: &mut App, context: TextInputContext, key: KeyEvent) ->
                         }
                     }
                 }
-                TextInputContext::RenameVm => {
-                    if !input.is_empty() {
-                        if let Some(vm) = app.selected_vm().cloned() {
-                            match crate::vm::lifecycle::rename_vm(&vm, &input) {
-                                Ok(()) => {
-                                    app.set_status(format!("Renamed to: {}", input));
-                                    // Refresh to pick up the new name
-                                    let _ = app.refresh_vms();
-                                }
-                                Err(e) => {
-                                    app.set_status(format!("Error renaming: {}", e));
-                                }
-                            }
-                        }
-                    }
-                }
                 TextInputContext::CreateGroup => {
                     if !input.is_empty() {
                         app.create_group(&input);
@@ -2642,6 +2890,53 @@ fn handle_text_input(app: &mut App, context: TextInputContext, key: KeyEvent) ->
                 TextInputContext::RenameGroup => {
                     if !input.is_empty() {
                         app.rename_selected_group(&input);
+                    }
+                }
+                TextInputContext::EditSystemMemory => {
+                    let trimmed = input.trim();
+                    if !trimmed.is_empty() {
+                        let script_path = app.selected_vm().map(|vm| vm.launch_script.clone());
+                        if let Some(script_path) = script_path {
+                            match trimmed.parse::<u32>() {
+                                Ok(mb) if mb > 0 => match update_vm_memory(&script_path, mb) {
+                                    Ok(()) => {
+                                        app.set_status(format!("Memory set to {} MB", mb));
+                                        let _ = app.refresh_vms();
+                                    }
+                                    Err(e) => {
+                                        app.set_status(format!("Failed to update memory: {}", e))
+                                    }
+                                },
+                                _ => app.set_status(
+                                    "Invalid memory value (must be a positive number of MB)",
+                                ),
+                            }
+                        }
+                    }
+                }
+                TextInputContext::EditSystemCpuCores => {
+                    let trimmed = input.trim();
+                    if !trimmed.is_empty() {
+                        let script_path = app.selected_vm().map(|vm| vm.launch_script.clone());
+                        if let Some(script_path) = script_path {
+                            match trimmed.parse::<u32>() {
+                                Ok(cores) if cores > 0 => {
+                                    match update_vm_cpu_cores(&script_path, cores) {
+                                        Ok(()) => {
+                                            app.set_status(format!("CPU cores set to {}", cores));
+                                            let _ = app.refresh_vms();
+                                        }
+                                        Err(e) => app.set_status(format!(
+                                            "Failed to update CPU cores: {}",
+                                            e
+                                        )),
+                                    }
+                                }
+                                _ => app.set_status(
+                                    "Invalid CPU core count (must be a positive whole number)",
+                                ),
+                            }
+                        }
                     }
                 }
             }
@@ -2656,9 +2951,7 @@ fn handle_text_input(app: &mut App, context: TextInputContext, key: KeyEvent) ->
                     // Only safe characters for snapshot names
                     c.is_alphanumeric() || c == '-' || c == '_' || c == '.'
                 }
-                TextInputContext::RenameVm
-                | TextInputContext::CreateGroup
-                | TextInputContext::RenameGroup => {
+                TextInputContext::CreateGroup | TextInputContext::RenameGroup => {
                     // Allow more characters for VM/group display names
                     c.is_alphanumeric()
                         || c == '-'
@@ -2667,6 +2960,10 @@ fn handle_text_input(app: &mut App, context: TextInputContext, key: KeyEvent) ->
                         || c == ' '
                         || c == '('
                         || c == ')'
+                }
+                TextInputContext::EditSystemMemory | TextInputContext::EditSystemCpuCores => {
+                    // Numeric only
+                    c.is_ascii_digit()
                 }
             };
             if allowed {
@@ -2744,4 +3041,154 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
     let x = area.x + (area.width.saturating_sub(width)) / 2;
     let y = area.y + (area.height.saturating_sub(height)) / 2;
     Rect::new(x, y, width, height)
+}
+
+#[cfg(test)]
+mod edit_system_tests {
+    use super::*;
+
+    fn sample_script() -> String {
+        "#!/bin/bash\n\
+         qemu-system-x86_64 \\\n  \
+         -enable-kvm \\\n  \
+         -machine q35,accel=kvm \\\n  \
+         -cpu host \\\n  \
+         -smp 2,sockets=1,cores=2,threads=1 \\\n  \
+         -m 4096M \\\n  \
+         -vga virtio \\\n  \
+         -display gtk\n"
+            .to_string()
+    }
+
+    /// Real wizard-generated launch.sh scripts have several `case` branches
+    /// (--install, --cdrom, --recovery, --floppy, default boot), each with its
+    /// own full copy of the QEMU invocation - this mirrors that shape so a fix
+    /// that only patches the first match (instead of every branch) fails here.
+    fn multi_branch_script() -> String {
+        "#!/bin/bash\n\
+         case \"$1\" in\n  \
+         --install)\n    \
+         qemu-system-x86_64 \\\n      \
+         -enable-kvm \\\n      \
+         -machine q35,accel=kvm \\\n      \
+         -cpu host \\\n      \
+         -smp 2,sockets=1,cores=2,threads=1 \\\n      \
+         -m 4096M \\\n      \
+         -display gtk\n    \
+         ;;\n  \
+         \"\")\n    \
+         qemu-system-x86_64 \\\n      \
+         -enable-kvm \\\n      \
+         -machine q35,accel=kvm \\\n      \
+         -cpu host \\\n      \
+         -smp 2,sockets=1,cores=2,threads=1 \\\n      \
+         -m 4096M \\\n      \
+         -display gtk\n    \
+         ;;\n\
+         esac\n"
+            .to_string()
+    }
+
+    fn write_temp_script(content: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "vm-curator-edit-system-test-{}-{}.sh",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    #[test]
+    fn update_memory_replaces_value_and_unit() {
+        let path = write_temp_script(&sample_script());
+        update_vm_memory(&path, 8192).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("-m 8192M"));
+        assert!(!content.contains("-m 4096M"));
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn update_cpu_cores_keeps_smp_and_cores_in_sync() {
+        let path = write_temp_script(&sample_script());
+        update_vm_cpu_cores(&path, 4).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("-smp 4,sockets=1,cores=4,threads=1"));
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn update_cpu_model_replaces_token_only() {
+        let path = write_temp_script(&sample_script());
+        update_vm_cpu_model(&path, "max").unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("-cpu max"));
+        assert!(!content.contains("-cpu host"));
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn update_machine_preserves_trailing_options() {
+        let path = write_temp_script(&sample_script());
+        update_vm_machine(&path, "pc").unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("-machine pc,accel=kvm"));
+        assert!(!content.contains("q35"));
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn update_memory_errors_without_m_flag() {
+        let path = write_temp_script("qemu-system-x86_64 -vga virtio\n");
+        assert!(update_vm_memory(&path, 2048).is_err());
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn update_memory_patches_every_case_branch() {
+        let path = write_temp_script(&multi_branch_script());
+        update_vm_memory(&path, 8192).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content.matches("-m 8192M").count(), 2);
+        assert!(!content.contains("-m 4096M"));
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn update_cpu_cores_patches_every_case_branch() {
+        let path = write_temp_script(&multi_branch_script());
+        update_vm_cpu_cores(&path, 4).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            content
+                .matches("-smp 4,sockets=1,cores=4,threads=1")
+                .count(),
+            2
+        );
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn update_cpu_model_patches_every_case_branch() {
+        let path = write_temp_script(&multi_branch_script());
+        update_vm_cpu_model(&path, "max").unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content.matches("-cpu max").count(), 2);
+        assert!(!content.contains("-cpu host"));
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn update_machine_patches_every_case_branch() {
+        let path = write_temp_script(&multi_branch_script());
+        update_vm_machine(&path, "pc").unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content.matches("-machine pc,accel=kvm").count(), 2);
+        assert!(!content.contains("q35"));
+        std::fs::remove_file(&path).unwrap();
+    }
 }

@@ -2,8 +2,9 @@
 //!
 //! Lists managed networks with live Active/Inactive status, edits their
 //! definitions, and starts/stops them by running the generated
-//! `net-up.sh`/`net-down.sh` scripts with sudo in a terminal window — the
-//! TUI itself never modifies host networking.
+//! `net-up.sh`/`net-down.sh` scripts with elevated privileges (pkexec if
+//! available, else sudo in a terminal window) — the TUI itself never
+//! modifies host networking.
 
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
@@ -47,8 +48,9 @@ pub fn render(app: &App, frame: &mut Frame) {
             Constraint::Length(1), // Header/intro
             Constraint::Length(1), // Spacer
             Constraint::Min(4),    // Network list
-            Constraint::Length(4), // Notes
             Constraint::Length(2), // Help
+            Constraint::Length(1), // Spacer
+            Constraint::Length(4), // Notes
         ])
         .split(h_chunks[1]);
 
@@ -101,20 +103,21 @@ pub fn render(app: &App, frame: &mut Frame) {
         frame.render_stateful_widget(list, v_chunks[2], &mut state);
     }
 
-    let notes = Paragraph::new(
-        "Start/stop runs the network's generated net-up.sh / net-down.sh with\n\
-         sudo in a terminal window (inspect them under ~/.config/vm-curator/\n\
-         networks/). Attach VMs via Network Settings → bridge.",
-    )
-    .style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(notes, v_chunks[3]);
-
     let help = Paragraph::new(
-        "[c] Create  [e] Edit  [d] Delete  [Enter] Start/Stop  [r] Refresh  [Esc] Back",
+        "[s] Start  [x] Stop  [a] Start All  [c] Create  [e] Edit  [d] Delete\n\
+         [Enter] Toggle  [r] Refresh  [Esc] Back",
     )
     .style(Style::default().fg(Color::DarkGray))
     .alignment(Alignment::Center);
-    frame.render_widget(help, v_chunks[4]);
+    frame.render_widget(help, v_chunks[3]);
+
+    let notes = Paragraph::new(
+        "Start/stop runs the network's generated net-up.sh / net-down.sh with\n\
+         pkexec (or sudo in a terminal if pkexec is unavailable) — inspect them\n\
+         under ~/.config/vm-curator/networks/. Attach VMs via Network Settings → bridge.",
+    )
+    .style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(notes, v_chunks[5]);
 
     // Create/edit form overlays the list
     if let Some(editor) = &app.vnet_editor {
@@ -286,6 +289,15 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
                 start_or_stop(app, &net);
             }
         }
+        KeyCode::Char('s') | KeyCode::Char('S') => {
+            start_selected(app);
+        }
+        KeyCode::Char('x') | KeyCode::Char('X') => {
+            stop_selected(app);
+        }
+        KeyCode::Char('a') | KeyCode::Char('A') => {
+            start_all(app);
+        }
         _ => {}
     }
     Ok(())
@@ -428,28 +440,156 @@ pub(crate) fn save_editor(app: &mut App) {
     }
 }
 
-/// Run the appropriate script in a terminal with sudo.
+/// Run the appropriate script with elevated privileges.
 fn start_or_stop(app: &mut App, net: &VirtualNetwork) {
-    let active = net.is_active();
-    let script = vnet::script_path(&vnet::networks_dir(), &net.name, !active);
-    if !script.exists() {
-        app.set_status(format!("Script missing: {}", script.display()));
-        return;
-    }
-    let action = if active { "Stopping" } else { "Starting" };
-    match run_script_in_terminal(&script) {
+    let start = !net.is_active();
+    let action = if start { "Starting" } else { "Stopping" };
+    match spawn_network_script(net, start) {
         Ok(()) => app.set_status(format!(
-            "{action} '{}' in a terminal window — authorize sudo there, then press r to refresh",
+            "{action} '{}' — authorize when prompted, then press r to refresh",
             net.name
         )),
         Err(e) => app.set_status(e),
     }
 }
 
-/// Spawn `sudo <script>` in the first available terminal emulator
+/// Start the selected network if it isn't already active.
+fn start_selected(app: &mut App) {
+    let Some(net) = app.vnet_networks.get(app.vnet_selected).cloned() else {
+        return;
+    };
+    if net.is_active() {
+        app.set_status(format!("'{}' is already active", net.name));
+        return;
+    }
+    match spawn_network_script(&net, true) {
+        Ok(()) => app.set_status(format!(
+            "Starting '{}' — authorize when prompted, then press r to refresh",
+            net.name
+        )),
+        Err(e) => app.set_status(e),
+    }
+}
+
+/// Stop the selected network if it isn't already inactive.
+fn stop_selected(app: &mut App) {
+    let Some(net) = app.vnet_networks.get(app.vnet_selected).cloned() else {
+        return;
+    };
+    if !net.is_active() {
+        app.set_status(format!("'{}' is already inactive", net.name));
+        return;
+    }
+    match spawn_network_script(&net, false) {
+        Ok(()) => app.set_status(format!(
+            "Stopping '{}' — authorize when prompted, then press r to refresh",
+            net.name
+        )),
+        Err(e) => app.set_status(e),
+    }
+}
+
+/// Start every network that isn't already active.
+fn start_all(app: &mut App) {
+    let inactive: Vec<VirtualNetwork> = app
+        .vnet_networks
+        .iter()
+        .filter(|n| !n.is_active())
+        .cloned()
+        .collect();
+    if inactive.is_empty() {
+        app.set_status("All networks are already active");
+        return;
+    }
+
+    let mut scripts = Vec::new();
+    let mut missing = Vec::new();
+    for net in &inactive {
+        let script = vnet::script_path(&vnet::networks_dir(), &net.name, true);
+        if script.exists() {
+            scripts.push(script);
+        } else {
+            missing.push(net.name.clone());
+        }
+    }
+
+    if scripts.is_empty() {
+        app.set_status(format!(
+            "No start scripts found for: {}",
+            missing.join(", ")
+        ));
+        return;
+    }
+
+    let count = scripts.len();
+    match run_privileged(&scripts) {
+        Ok(()) => {
+            let mut msg = format!(
+                "Starting {count} network(s) — authorize when prompted, then press r to refresh"
+            );
+            if !missing.is_empty() {
+                msg.push_str(&format!("; script missing for: {}", missing.join(", ")));
+            }
+            app.set_status(msg);
+        }
+        Err(e) => app.set_status(e),
+    }
+}
+
+/// Resolve and run the start/stop script for a network with elevated privileges.
+fn spawn_network_script(net: &VirtualNetwork, start: bool) -> std::result::Result<(), String> {
+    let script = vnet::script_path(&vnet::networks_dir(), &net.name, start);
+    if !script.exists() {
+        return Err(format!("Script missing: {}", script.display()));
+    }
+    run_privileged(std::slice::from_ref(&script))
+}
+
+/// Run one or more scripts as root in a single privileged invocation (so
+/// e.g. "Start All" only prompts for authorization once): prefer `pkexec`
+/// (graphical polkit prompt, no terminal required), falling back to `sudo`
+/// in a terminal emulator when pkexec isn't installed.
+fn run_privileged(scripts: &[std::path::PathBuf]) -> std::result::Result<(), String> {
+    let combined = scripts
+        .iter()
+        .map(|p| shell_quote(&p.to_string_lossy()))
+        .collect::<Vec<_>>()
+        .join("; ");
+
+    if command_exists("pkexec") {
+        use std::process::Stdio;
+        // The scripts' own stdout/stderr must not inherit ours: we have no
+        // terminal window here, so it would otherwise print straight onto
+        // the raw terminal ratatui is drawing to and corrupt the TUI.
+        return std::process::Command::new("pkexec")
+            .arg("sh")
+            .arg("-c")
+            .arg(&combined)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("Failed to launch pkexec: {e}"));
+    }
+    run_shell_in_terminal(&combined)
+}
+
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+fn command_exists(cmd: &str) -> bool {
+    std::process::Command::new("which")
+        .arg(cmd)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Run `sudo sh -c '<shell_cmd>'` in the first available terminal emulator
 /// (same launcher list as the single-GPU passthrough setup).
-fn run_script_in_terminal(script: &std::path::Path) -> std::result::Result<(), String> {
-    let script_path = script.to_string_lossy().to_string();
+fn run_shell_in_terminal(shell_cmd: &str) -> std::result::Result<(), String> {
     let terminals: &[(&str, &[&str])] = &[
         ("alacritty", &["-e", "sudo"]),
         ("kitty", &["sudo"]),
@@ -461,23 +601,18 @@ fn run_script_in_terminal(script: &std::path::Path) -> std::result::Result<(), S
     ];
 
     for (term, args) in terminals {
-        let found = std::process::Command::new("which")
-            .arg(term)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if !found {
+        if !command_exists(term) {
             continue;
         }
         let mut cmd = std::process::Command::new(term);
-        cmd.args(*args).arg(&script_path);
+        cmd.args(*args).arg("sh").arg("-c").arg(shell_cmd);
         if cmd.spawn().is_ok() {
             return Ok(());
         }
     }
     Err(
-        "No terminal found. Install alacritty, kitty, ghostty, konsole, or gnome-terminal — \
-         or run the script manually with sudo."
+        "No pkexec or terminal found. Install polkit (pkexec), or alacritty, kitty, ghostty, \
+         konsole, gnome-terminal — or run the script manually with sudo."
             .to_string(),
     )
 }
@@ -504,4 +639,35 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
     let x = area.x + (area.width.saturating_sub(width)) / 2;
     let y = area.y + (area.height.saturating_sub(height)) / 2;
     Rect::new(x, y, width, height)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shell_quote;
+
+    #[test]
+    fn shell_quote_wraps_plain_paths_in_single_quotes() {
+        assert_eq!(
+            shell_quote("/home/user/.config/vm-curator/networks/net0/net-up.sh"),
+            "'/home/user/.config/vm-curator/networks/net0/net-up.sh'"
+        );
+    }
+
+    #[test]
+    fn shell_quote_escapes_embedded_single_quotes() {
+        assert_eq!(shell_quote("it's/a/path"), "'it'\\''s/a/path'");
+    }
+
+    #[test]
+    fn start_all_combines_multiple_scripts_into_one_shell_command() {
+        // Mirrors what `run_privileged` builds so "Start All" issues a
+        // single pkexec/sudo prompt instead of one per network.
+        let scripts = ["/net0/net-up.sh", "/net1/net-up.sh"];
+        let combined = scripts
+            .iter()
+            .map(|p| shell_quote(p))
+            .collect::<Vec<_>>()
+            .join("; ");
+        assert_eq!(combined, "'/net0/net-up.sh'; '/net1/net-up.sh'");
+    }
 }

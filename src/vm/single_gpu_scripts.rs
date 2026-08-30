@@ -1129,16 +1129,28 @@ pub fn run_system_setup(gpu_driver: &str) -> SystemSetupResult {
         return SystemSetupResult::Error(format!("Failed to make script executable: {}", e));
     }
 
+    // Prefer pkexec (graphical polkit prompt) over sudo when it's installed.
+    let escalate: &str = if Command::new("which")
+        .arg("pkexec")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        "pkexec"
+    } else {
+        "sudo"
+    };
+
     // Find a terminal emulator and launch the script
     // Try each terminal in order of preference
     let terminals: &[(&str, &[&str])] = &[
-        ("alacritty", &["-e", "sudo", script_path]),
-        ("kitty", &["sudo", script_path]),
-        ("ghostty", &["-e", "sudo", script_path]),
-        ("gnome-terminal", &["--", "sudo", script_path]),
-        ("konsole", &["-e", "sudo", script_path]),
-        ("xfce4-terminal", &["-x", "sudo", script_path]),
-        ("xterm", &["-e", "sudo", script_path]),
+        ("alacritty", &["-e", escalate, script_path]),
+        ("kitty", &[escalate, script_path]),
+        ("ghostty", &["-e", escalate, script_path]),
+        ("gnome-terminal", &["--", escalate, script_path]),
+        ("konsole", &["-e", escalate, script_path]),
+        ("xfce4-terminal", &["-x", escalate, script_path]),
+        ("xterm", &["-e", escalate, script_path]),
     ];
 
     for (term, args) in terminals {
